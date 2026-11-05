@@ -29,7 +29,7 @@ export async function github(
   if (!response.ok)
     throw new HttpError(
       502,
-      `Repository operation failed (${response.status})`,
+      `GitHub API ${method} ${path.split("?")[0].replace(/\/[a-f0-9-]{36}/gi, "/:id")} failed (HTTP ${response.status})`,
     );
   return response.status === 204 ? null : response.json();
 }
