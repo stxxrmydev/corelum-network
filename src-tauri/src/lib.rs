@@ -207,7 +207,7 @@ fn credentials() -> Result<keyring::Entry, String> {
 }
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(120))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| "Network client unavailable".into())
@@ -242,7 +242,7 @@ async fn request(
     let response = req
         .send()
         .await
-        .map_err(|_| "Could not connect to the administration service")?;
+        .map_err(|e| if e.is_timeout() { "The AI request timed out. Please retry with a shorter message." } else { "Could not connect to the administration service" })?;
     let status = response.status();
     let value: serde_json::Value = response
         .json()

@@ -46,7 +46,7 @@ async function audit(env: Env, actor: string, action: string, target: string) {
     .run();
 }
 async function body(req: Request) {
-  const text = new TextDecoder().decode(await boundedBytes(req, 20000));
+  const text = new TextDecoder().decode(await boundedBytes(req, 40000));
   try {
     return JSON.parse(text);
   } catch {
@@ -356,18 +356,18 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     if (
       !Array.isArray(b.messages) ||
       !b.messages.length ||
-      b.messages.length > 20 ||
+      b.messages.length > 24 ||
       b.messages.some(
         (m: any) =>
           !["user", "assistant"].includes(m.role) ||
           typeof m.content !== "string" ||
-          m.content.length > 5000,
+          m.content.length > 9000,
       ) ||
-      b.messages.reduce((n: number, m: any) => n + m.content.length, 0) > 18000
+      b.messages.reduce((n: number, m: any) => n + m.content.length, 0) > 26000
     )
       throw new HttpError(
         400,
-        "The conversation is too long. Start a new chat.",
+        "This request exceeds the conversation limit. Shorten your message or start a new chat.",
       );
     const key = `chat:${session.admin_id}`,
       until = Date.now() + 60000;
@@ -392,7 +392,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
           },
           ...b.messages,
         ],
-        max_tokens: 1024,
+        max_tokens: 1536,
         stream: false,
       })) as { response?: string };
       if (!result.response) throw new Error("Empty reply");

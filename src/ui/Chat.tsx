@@ -44,9 +44,9 @@ export function Chat() {
     try {
       let count = 0;
       const context: Message[] = [];
-      for (const item of next.slice(-18).reverse()) {
+      for (const item of next.slice(-20).reverse()) {
         count += item.content.length;
-        if (count > 15000) break;
+        if (count > 19000) break;
         context.unshift(item);
       }
       const response = await api<{ reply: string }>("/chat", "POST", {
@@ -146,7 +146,7 @@ export function Chat() {
             aria-label="Message Corelum AI"
             placeholder="Message Corelum AI…"
             value={text}
-            maxLength={4000}
+            maxLength={8000}
             rows={2}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
