@@ -26,7 +26,7 @@ The desktop has a compile-time HTTPS service origin. Ordinary users cannot chang
 
 The repository credential exists only in the service secret store. The update private key exists only in protected local setup storage and the signing environment. It is not in Git or in distributed application files. Signing and publishing jobs check out trusted main-branch tooling. Candidate builds receive no signing or publishing secret. The validation container has no network, a read-only source mount, dropped capabilities, no host write access, and CPU/memory/process limits. Windows compilation runs on a disposable GitHub-hosted VM with no persisted checkout credential and no release secrets.
 
-Only the trusted publishing job can register release metadata. The service validates GitHub's signed OIDC token, audience, repository, branch, environment, workflow path, and deployment run name, then checks the actual release asset. The private GitHub download credential is never forwarded to the desktop or to a redirected object-storage host.
+Only the trusted publishing job can register release metadata. The service validates GitHub's signed OIDC token, audience, repository, branch, workflow path, and deployment run name, then checks the actual release asset. The private GitHub download credential is never forwarded to the desktop or to a redirected object-storage host.
 
 Tauri verifies the installer signature and its signed version before installation. A manifest cannot relabel an old signed binary as a new version. Channel selection also refuses an equal or lower version. Protected-file checks in CI independently verify the ZIP integration restrictions and generated version changes.
 

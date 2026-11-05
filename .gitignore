@@ -12,3 +12,4 @@ local-secrets/
 service-dry-run/
 src-tauri/gen/
 samples/*.zip
+src-tauri/ci.bundle.json

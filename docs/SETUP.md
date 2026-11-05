@@ -58,7 +58,7 @@ Generate the Tauri update key once, retain its private half in secure backup, an
 npm run tauri -- signer generate -w PATH_OUTSIDE_THE_REPOSITORY
 ```
 
-Configure repository variable `TAURI_PUBLIC_KEY` with the public key text and `NIMBUS_SERVICE_URL` with the HTTPS service origin, without a trailing slash. Create environments `release-signing` and `release-publishing`. Store `TAURI_SIGNING_PRIVATE_KEY` only in the signing environment. If encrypted, also store `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Optionally restrict these environments to trusted main-branch workflows and add a reviewer if your GitHub plan supports it. A reviewer gate intentionally pauses automatic publication until the reviewer approves.
+Configure repository variable `TAURI_PUBLIC_KEY` with the public key text and `NIMBUS_SERVICE_URL` with the HTTPS service origin, without a trailing slash. Store `TAURI_SIGNING_PRIVATE_KEY` as an encrypted repository Actions secret; only the trusted signing job references it. If encrypted, also store `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. This works with a private repository on the free plan. Additional deployment environments and reviewer gates can be configured if your plan supports them; update the OIDC subject policy if adding an environment to the publishing job.
 
 The trusted signing job signs the installer with `--app-version`, and clients require that signed version. Keep the public key stable across normal updates. Losing the private key breaks continuity for existing installations. This key does not replace a Windows Authenticode certificate. For a trusted publisher label in Windows, obtain a certificate or suitable signing service and add an Authenticode step in the trusted signing job before the Tauri updater signature is produced.
 

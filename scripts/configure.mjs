@@ -13,3 +13,7 @@ const file = "src-tauri/tauri.conf.json",
   config = JSON.parse(readFileSync(file, "utf8"));
 config.plugins.updater.pubkey = process.env.PUBLIC_KEY.trim();
 writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
+writeFileSync(
+  "src-tauri/ci.bundle.json",
+  JSON.stringify({ bundle: { createUpdaterArtifacts: false } }),
+);
