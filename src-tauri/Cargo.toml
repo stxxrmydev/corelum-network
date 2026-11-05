@@ -1,6 +1,6 @@
 [package]
 name = "corelum-network"
-version = "1.0.0"
+version = "1.0.1-beta.1"
 description = "Create and update projects using file drops."
 authors = ["Corelum"]
 edition = "2021"
