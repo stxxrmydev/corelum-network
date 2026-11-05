@@ -625,6 +625,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
         .bind(id)
         .run();
       if (!lock.meta.changes) throw new HttpError(409, "Already approved");
+      let integrationStage = "archive validation";
       try {
         const obj = await new SqlObjectStore(env.DB, "archives").get(id);
         if (!obj) throw new Error("Archive is missing");
@@ -632,12 +633,14 @@ export async function handle(req: Request, env: Env): Promise<Response> {
           new Uint8Array(await obj.arrayBuffer()),
         );
         if (archive.digest !== d.digest) throw new Error("Archive changed");
+        integrationStage = "GitHub source integration";
         const sha = await integrate(env, id, archive);
         await env.DB.prepare(
           "UPDATE deployments SET status='Building',source_sha=? WHERE id=?",
         )
           .bind(sha, id)
           .run();
+        integrationStage = "GitHub Actions dispatch";
         await github(env, "/actions/workflows/release.yml/dispatches", "POST", {
           ref: env.GITHUB_BRANCH,
           inputs: {
@@ -649,10 +652,14 @@ export async function handle(req: Request, env: Env): Promise<Response> {
         });
         await audit(env, actor, "approve", id);
       } catch (e) {
+        // Record a bounded diagnostic without leaking credentials or response bodies.
+        const detail = e instanceof HttpError ? e.message : "Unexpected internal error";
+        const diagnostic = `${integrationStage}: ${detail}`.slice(0, 240);
+        console.error("Deployment approval failed", { id, stage: integrationStage, detail });
         await env.DB.prepare(
-          "UPDATE deployments SET status='Failed',error='Integration or build dispatch failed. Check repository configuration.' WHERE id=?",
+          "UPDATE deployments SET status='Failed',error=? WHERE id=?",
         )
-          .bind(id)
+          .bind(diagnostic, id)
           .run();
         throw e;
       }
