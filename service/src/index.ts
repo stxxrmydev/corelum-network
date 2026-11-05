@@ -277,7 +277,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     await rateLimit(req, env);
     const b = await body(req);
     if (path === "/auth/register") {
-      const gates = await env.DB.prepare("SELECT pause_signups FROM policy WHERE id=1").first<{pause_signups:number}>();
+      const gates = await env.DB.prepare("SELECT pause_signups FROM policy WHERE id=1").first<{pause_signups:number}>().catch(() => null);
       if (gates?.pause_signups) throw new HttpError(503, "Account registration is temporarily paused.");
       const username = String(b.username || "")
         .trim()
@@ -326,7 +326,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       return json({ ok: true });
     }
     if (path === "/auth/login") {
-      const gates = await env.DB.prepare("SELECT pause_logins FROM policy WHERE id=1").first<{pause_logins:number}>();
+      const gates = await env.DB.prepare("SELECT pause_logins FROM policy WHERE id=1").first<{pause_logins:number}>().catch(() => null);
       if (gates?.pause_logins) throw new HttpError(503, "Sign-ins are temporarily paused.");
       await rateLimitAccount(env, String(b.username || b.email || ""));
       const admin = await env.DB.prepare("SELECT * FROM admins WHERE email=?")

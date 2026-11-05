@@ -48,6 +48,7 @@ beforeAll(async () => {
       "utf8",
     ),
   );
+  await db.exec(readFileSync("service/migrations/0004_auth_controls.sql", "utf8"));
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
