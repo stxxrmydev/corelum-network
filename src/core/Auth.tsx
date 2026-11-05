@@ -39,7 +39,13 @@ export function SignIn({
             setBusy(true);
             setError("");
             try {
-              if (register) await call("register", { username, password });
+              if (register) {
+                await call("register", { username, password });
+                setRegister(false);
+                setPassword("");
+                setError("Account created. Please sign in.");
+                return;
+              }
               await call("login", { email: username, password });
               setPassword("");
               onSignedIn(await api<Account>("/me"));

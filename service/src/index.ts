@@ -277,6 +277,8 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     await rateLimit(req, env);
     const b = await body(req);
     if (path === "/auth/register") {
+      const gates = await env.DB.prepare("SELECT pause_signups FROM policy WHERE id=1").first<{pause_signups:number}>();
+      if (gates?.pause_signups) throw new HttpError(503, "Account registration is temporarily paused.");
       const username = String(b.username || "")
         .trim()
         .toLowerCase();
@@ -324,6 +326,8 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       return json({ ok: true });
     }
     if (path === "/auth/login") {
+      const gates = await env.DB.prepare("SELECT pause_logins FROM policy WHERE id=1").first<{pause_logins:number}>();
+      if (gates?.pause_logins) throw new HttpError(503, "Sign-ins are temporarily paused.");
       await rateLimitAccount(env, String(b.username || b.email || ""));
       const admin = await env.DB.prepare("SELECT * FROM admins WHERE email=?")
         .bind(String(b.username || b.email).toLowerCase())
@@ -469,6 +473,10 @@ export async function handle(req: Request, env: Env): Promise<Response> {
         await env.DB.prepare("UPDATE policy SET auto_publish=? WHERE id=1")
           .bind(b.autoPublish ? 1 : 0)
           .run();
+      if (typeof b.pauseSignups === "boolean")
+        await env.DB.prepare("UPDATE policy SET pause_signups=? WHERE id=1").bind(b.pauseSignups ? 1 : 0).run();
+      if (typeof b.pauseLogins === "boolean")
+        await env.DB.prepare("UPDATE policy SET pause_logins=? WHERE id=1").bind(b.pauseLogins ? 1 : 0).run();
       if (typeof b.maintenance === "boolean")
         await env.DB.prepare("UPDATE policy SET maintenance=? WHERE id=1")
           .bind(b.maintenance ? 1 : 0)
@@ -477,7 +485,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     }
     return json(
       await env.DB.prepare(
-        "SELECT auto_publish,maintenance FROM policy WHERE id=1",
+        "SELECT auto_publish,maintenance,pause_signups AS pauseSignups,pause_logins AS pauseLogins FROM policy WHERE id=1",
       ).first(),
     );
   }
