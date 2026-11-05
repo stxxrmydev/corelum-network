@@ -48,6 +48,7 @@ beforeAll(async () => {
       "utf8",
     ),
   );
+  await db.exec(readFileSync("service/migrations/0004_auth_controls.sql", "utf8"));
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
@@ -69,7 +70,7 @@ describe("real Worker and SQL integration", () => {
     ).toBe(403));
   it("creates the first admin only once", async () => {
     const input = {
-      email: "admin@example.test",
+      email: "stormydev",
       password: "a strong 20+ character password",
       bootstrap: "b".repeat(64),
     };
@@ -78,7 +79,7 @@ describe("real Worker and SQL integration", () => {
   });
   it("authenticates and enforces a real session lookup", async () => {
     const response = await request("/auth/login", "POST", {
-      email: "admin@example.test",
+      email: "stormydev",
       password: "a strong 20+ character password",
     });
     expect(response.status).toBe(200);
