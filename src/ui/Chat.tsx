@@ -44,9 +44,9 @@ export function Chat() {
     try {
       let count = 0;
       const context: Message[] = [];
-      for (const item of next.slice(-20).reverse()) {
+      for (const item of next.slice(-12).reverse()) {
         count += item.content.length;
-        if (count > 19000) break;
+        if (count > 9000) break;
         context.unshift(item);
       }
       const response = await api<{ reply: string }>("/chat", "POST", {
