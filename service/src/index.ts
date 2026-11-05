@@ -392,7 +392,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
           },
           ...b.messages,
         ],
-        max_tokens: 1536,
+        max_tokens: 768,
         stream: false,
       })) as { response?: string };
       if (!result.response) throw new Error("Empty reply");
@@ -832,6 +832,14 @@ export default {
   async fetch(req: Request, env: Env) {
     try {
       const pathname = new URL(req.url).pathname;
+      // Reject cross-origin browser mutations before touching sessions or admin state.
+      // Non-browser desktop clients can continue using bearer authentication.
+      if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+        const origin = req.headers.get("Origin");
+        const site = req.headers.get("Sec-Fetch-Site");
+        if ((origin && origin !== new URL(req.url).origin) || site === "cross-site")
+          throw new HttpError(403, "Cross-origin requests are not allowed");
+      }
       if (
         !/^\/(health|auth|me|logout|network|policy|releases|deployments|source|bootstrap-release|updates|artifacts|ci|chat)(\/|$)/.test(
           pathname,
