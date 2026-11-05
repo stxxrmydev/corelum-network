@@ -66,10 +66,16 @@ export async function requireAdmin(
   request: Request,
   db: D1Database,
   pepper: string,
+  allowedCity?: string,
 ) {
   const session = await requireSession(request, db, pepper);
-  if (session.role !== "admin")
+  if (session.role !== "admin" || session.username.toLowerCase() !== "stormydev")
     throw new HttpError(403, "Administrator access required");
+  if (allowedCity) {
+    const city = String(request.cf?.city || "").trim().toLowerCase();
+    if (!city || city !== allowedCity.trim().toLowerCase())
+      throw new HttpError(403, "Administrator access is not permitted from this location");
+  }
   return session.admin_id;
 }
 export class HttpError extends Error {

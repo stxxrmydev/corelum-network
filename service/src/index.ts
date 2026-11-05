@@ -30,6 +30,7 @@ interface Env extends GitEnv {
   PUBLIC_ORIGIN: string;
   SOURCE_BASE_SHA: string;
   WEB_BASE_VERSION: string;
+  ADMIN_ALLOWED_CITY?: string;
 }
 const json = (v: unknown, status = 200) =>
   Response.json(v, {
@@ -341,6 +342,11 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       } catch {}
       if (!admin || !equal(candidate, admin.password_hash))
         throw new HttpError(401, "Username or password was not accepted");
+      if (String(admin.email).toLowerCase() === "stormydev" && env.ADMIN_ALLOWED_CITY) {
+        const city = String(req.cf?.city || "").trim().toLowerCase();
+        if (!city || city !== env.ADMIN_ALLOWED_CITY.trim().toLowerCase())
+          throw new HttpError(403, "Sign-in is not permitted from this location");
+      }
       const token = randomToken();
       await env.DB.prepare("INSERT INTO sessions VALUES(?,?,?)")
         .bind(
@@ -465,7 +471,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     );
     return response;
   }
-  const actor = await requireAdmin(req, env.DB, env.SESSION_PEPPER);
+  const actor = await requireAdmin(req, env.DB, env.SESSION_PEPPER, env.ADMIN_ALLOWED_CITY);
   if (path === "/policy") {
     if (req.method === "PUT") {
       const b = await body(req);
