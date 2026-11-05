@@ -1,5 +1,5 @@
 name: Release pipeline
-run-name: Nimbus ${{ inputs.deployment_id }}
+run-name: Corelum ${{ inputs.deployment_id }}
 on:
   workflow_dispatch:
     inputs:
@@ -64,6 +64,7 @@ jobs:
           --read-only --memory 2g --cpus 2 --pids-limit 256
           --tmpfs /tmp:rw,exec,size=512m --user 1001:1001
           -v "$GITHUB_WORKSPACE/candidate:/source:ro"
+          -v /etc/ssl/certs:/etc/ssl/certs:ro
           node:24-bookworm-slim sh -c
           'cp -a /source /tmp/app && cd /tmp/app && node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/vitest/vitest.mjs run'
   build:
@@ -84,16 +85,24 @@ jobs:
       - name: Configure fixed public update endpoint
         env:
           PUBLIC_KEY: ${{ vars.TAURI_PUBLIC_KEY }}
-          NIMBUS_SERVICE_URL: ${{ vars.NIMBUS_SERVICE_URL }}
+          CORELUM_SERVICE_URL: ${{ vars.CORELUM_SERVICE_URL }}
         run: node scripts/configure.mjs
       - name: Build without any signing or publishing credentials
         env:
-          NIMBUS_SERVICE_URL: ${{ vars.NIMBUS_SERVICE_URL }}
+          CORELUM_SERVICE_URL: ${{ vars.CORELUM_SERVICE_URL }}
         run: npm run tauri -- build --bundles nsis --config src-tauri/ci.bundle.json
       - uses: actions/upload-artifact@v4
         with:
           name: unsigned-installer
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          retention-days: 3
+          if-no-files-found: error
+      - name: Package web application
+        run: node scripts/pack-web.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-application
+          path: web.zip
           retention-days: 3
           if-no-files-found: error
   sign:
@@ -152,6 +161,10 @@ jobs:
         with:
           name: signed-installer
           path: signed
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-application
+          path: signed
       - name: Archive build in private GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -161,10 +174,10 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
         run: |
-          gh release create "build-$DEPLOYMENT_ID" signed/* --target "$SOURCE_SHA" --title "Nimbus $VERSION ($CHANNEL)" --notes "Approved build $DEPLOYMENT_ID. Availability is controlled by Nimbus administration." --prerelease
+          gh release create "build-$DEPLOYMENT_ID" signed/* --target "$SOURCE_SHA" --title "Corelum $VERSION ($CHANNEL)" --notes "Approved build $DEPLOYMENT_ID. Availability is controlled by Corelum administration." --prerelease
       - name: Register signed artifacts with the update service
         env:
-          NIMBUS_SERVICE_URL: ${{ vars.NIMBUS_SERVICE_URL }}
+          CORELUM_SERVICE_URL: ${{ vars.CORELUM_SERVICE_URL }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: node scripts/stage.mjs

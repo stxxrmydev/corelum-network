@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-const url = new URL(process.env.NIMBUS_SERVICE_URL || "invalid:");
+const url = new URL(process.env.CORELUM_SERVICE_URL || "invalid:");
 if (
   url.protocol !== "https:" ||
   url.username ||

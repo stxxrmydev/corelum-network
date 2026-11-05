@@ -6,10 +6,10 @@ test("navigation, appearance, persistent settings, protected administration", as
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Welcome to Nimbus." }),
+    page.getByRole("heading", { name: "Welcome to Corelum." }),
   ).toBeVisible();
   await page.screenshot({
-    path: "../../outputs/Nimbus-dashboard.png",
+    path: "../../outputs/Corelum-dashboard.png",
     fullPage: true,
     animations: "disabled",
   });
@@ -50,7 +50,7 @@ test("fits the minimum window size", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 650 });
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Welcome to Nimbus." }),
+    page.getByRole("heading", { name: "Welcome to Corelum." }),
   ).toBeVisible();
   expect(
     await page.evaluate(

@@ -14,7 +14,7 @@ if (
 const files = readdirSync("signed").filter((f) => f.endsWith("-setup.exe"));
 if (files.length !== 1) throw Error("Expected one installer");
 const old = `signed/${files[0]}`,
-  name = `Nimbus_${version}_x64-setup.exe`,
+  name = `CorelumNetwork_${version}_x64-setup.exe`,
   bytes = readFileSync(old),
   signature = readFileSync(old + ".sig", "utf8").trim();
 renameSync(old, `signed/${name}`);

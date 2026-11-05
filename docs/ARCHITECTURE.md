@@ -38,7 +38,7 @@ Published metadata becomes available immediately at the service; running online 
 
 ## Persistence and installation
 
-The app identifier remains `com.nimbus.foundation`. Tauri's per-user app-data directory stores settings, a last-known settings backup, update history and a pending-install marker. WebView2's local storage holds module data. The installer uses NSIS in current-user mode, with a stable application name, Start menu identity and uninstaller. It does not write source patches into the installed directory. The maintained updater launches the signed installer; Windows exits the running application as part of that process.
+The app identifier remains `com.corelum.network`. Tauri's per-user app-data directory stores settings, a last-known settings backup, update history and a pending-install marker. WebView2's local storage holds module data. The installer uses NSIS in current-user mode, with a stable application name, Start menu identity and uninstaller. It does not write source patches into the installed directory. The maintained updater launches the signed installer; Windows exits the running application as part of that process.
 
 Settings have a schema version and validated defaults for newly introduced fields. Writes stage and flush a temporary file before replacement and retain a backup. Service schema changes use numbered migrations. Future destructive data migrations must include a backup and a separately reviewed recovery procedure; arbitrary migrations are not allowed through feature ZIPs.
 

@@ -20,7 +20,7 @@ export async function github(
       headers: {
         Authorization: `Bearer ${env.GITHUB_TOKEN}`,
         Accept: "application/vnd.github+json",
-        "User-Agent": "Nimbus-Control",
+        "User-Agent": "Corelum-Control",
         "X-GitHub-Api-Version": "2022-11-28",
       },
       body: body === undefined ? undefined : JSON.stringify(body),

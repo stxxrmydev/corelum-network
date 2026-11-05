@@ -1,12 +1,12 @@
 [package]
-name = "nimbus-shell"
+name = "corelum-network"
 version = "1.0.0"
-description = "Nimbus application foundation"
-authors = ["Nimbus"]
+description = "Create and update projects using file drops."
+authors = ["Corelum"]
 edition = "2021"
 
 [lib]
-name = "nimbus_lib"
+name = "corelum_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

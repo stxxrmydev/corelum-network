@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
-const origin = process.env.NIMBUS_SERVICE_URL;
+const origin = process.env.CORELUM_SERVICE_URL;
 if (!origin || new URL(origin).protocol !== "https:")
   throw Error("HTTPS service origin is required");
 const m = JSON.parse(readFileSync("signed/release.json", "utf8"));
-if (!/^[a-f0-9-]{36}\/Nimbus_[\w.-]+_x64-setup.exe$/.test(m.key))
+if (!/^[a-f0-9-]{36}\/CorelumNetwork_[\w.-]+_x64-setup.exe$/.test(m.key))
   throw Error("Unsafe artifact key");
 const identityURL = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
 identityURL.searchParams.set("audience", origin);
@@ -36,6 +36,7 @@ const release = await releaseResponse.json();
 const asset = release.assets.find((a) => a.name === m.key.split("/")[1]);
 if (!asset) throw Error("Installer asset is missing");
 m.asset_id = asset.id;
+await send(`/ci/web/${m.deployment_id}`,readFileSync('signed/web.zip'),{'Content-Type':'application/zip'});
 await send(`/ci/manifest/${m.deployment_id}`, JSON.stringify(m), {
   "Content-Type": "application/json",
 });

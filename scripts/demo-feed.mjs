@@ -20,7 +20,9 @@ createServer((req, res) => {
     return res.end(readFileSync(resolve(root, "release.json")));
   }
   if (path === "/installer.exe") {
-    const bytes = readFileSync(resolve(root, "Nimbus_1.0.1_x64-setup.exe"));
+    const bytes = readFileSync(
+      resolve(root, "CorelumNetwork_1.0.1_x64-setup.exe"),
+    );
     res.setHeader("Content-Length", bytes.length);
     res.setHeader("Content-Type", "application/octet-stream");
     if (existsSync(resolve(root, "interrupt-once"))) {

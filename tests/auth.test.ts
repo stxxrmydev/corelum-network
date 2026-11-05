@@ -45,7 +45,7 @@ describe("administrator security", () => {
     ).toBe(true);
   });
   it("does not accept short passwords", async () =>
-    expect(passwordHash("password", "salt")).rejects.toThrow());
+    expect(passwordHash("short", "salt")).rejects.toThrow());
   it("stores a peppered session hash", async () => {
     const t = randomToken();
     expect(t).toMatch(/^[a-f0-9]{64}$/);

@@ -35,7 +35,7 @@ export async function requireBuild(
     throw new HttpError(403, "Build workflow was not accepted");
   const run = await github(env, `/actions/runs/${payload.run_id}`);
   if (
-    run.display_title !== `Nimbus ${id}` ||
+    run.display_title !== `Corelum ${id}` ||
     run.event !== "workflow_dispatch" ||
     run.path !== ".github/workflows/release.yml"
   )

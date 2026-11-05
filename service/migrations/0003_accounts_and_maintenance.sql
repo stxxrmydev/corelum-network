@@ -1,0 +1,2 @@
+ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'admin' CHECK(role IN ('admin','user'));
+ALTER TABLE policy ADD COLUMN maintenance INTEGER NOT NULL DEFAULT 0;

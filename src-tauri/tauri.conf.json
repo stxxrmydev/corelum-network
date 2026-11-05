@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Nimbus",
+  "productName": "Corelum Network",
   "version": "1.0.0",
-  "identifier": "com.nimbus.foundation",
+  "identifier": "com.corelum.network",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "Nimbus",
+        "title": "Corelum Network",
+        "theme": "Dark",
         "width": 1200,
         "height": 820,
         "minWidth": 900,
@@ -37,14 +38,15 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "shortDescription": "Your workspace, continuously evolving.",
-    "publisher": "Nimbus",
+    "shortDescription": "Create and update projects using file drops.",
+    "longDescription": "Corelum Network is a Windows workspace for creating and updating projects through reviewed file drops, controlled builds, and verified releases.",
+    "publisher": "Corelum",
     "category": "Productivity",
     "windows": {
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false,
-        "startMenuFolder": "Nimbus",
+        "startMenuFolder": "Corelum Network",
         "installerIcon": "icons/icon.ico"
       }
     }

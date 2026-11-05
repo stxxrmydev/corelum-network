@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -45,8 +45,11 @@ import type {
   Deployment,
   Release,
 } from "./core/types";
-import { call, api, desktop } from "./core/bridge";
+import { call, api, desktop, acceptFile } from "./core/bridge";
 import "./ui/theme.css";
+import "./ui/studio.css";
+import { SignIn, Maintenance, type Account } from "./core/Auth";
+import { BrandMark } from "./ui/BrandMark";
 const modules = Object.values(
   import.meta.glob<{ default: Feature }>("./features/**/index.tsx", {
     eager: true,
@@ -72,7 +75,7 @@ function App() {
     [info, setInfo] = useState<AppInfo>(),
     [status, setStatus] = useState<UpdateStatus>({
       phase: "idle",
-      message: "Starting Nimbus…",
+      message: "Starting Corelum…",
       progress: 0,
       notes: "",
     }),
@@ -80,6 +83,12 @@ function App() {
     [notice, setNotice] = useState(""),
     [admin, setAdmin] = useState(false),
     [history, setHistory] = useState<any[] | null>(null);
+  const [account, setAccount] = useState<Account>(),
+    [authLoading, setAuthLoading] = useState(true);
+  const settingsRef = useRef<Settings | undefined>(undefined);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const [saving, setSaving] = useState(false),
+    [saveError, setSaveError] = useState(false);
   const notify = useCallback((m: string) => setNotice(m), []);
   useEffect(() => {
     Promise.all([
@@ -88,6 +97,7 @@ function App() {
       call<UpdateStatus>("update_status"),
     ])
       .then(([s, i, u]) => {
+        settingsRef.current = s;
         setSettings(s);
         setInfo(i);
         setStatus(u);
@@ -95,10 +105,13 @@ function App() {
         if (i.settingsError) notify(i.settingsError);
       })
       .catch((e) => notify(String(e)));
-    if (desktop)
-      api("/me")
-        .then(() => setAdmin(true))
-        .catch(() => {});
+    api<Account>("/me")
+      .then((a) => {
+        setAccount(a);
+        setAdmin(a.role === "admin");
+      })
+      .catch(() => {})
+      .finally(() => setAuthLoading(false));
   }, []);
   useEffect(() => {
     if (!desktop) return;
@@ -120,6 +133,14 @@ function App() {
             : "light"
           : settings.appearance;
       document.documentElement.style.setProperty("--accent", settings.accent);
+      const hex = settings.accent.slice(1),
+        rgb = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      document.documentElement.style.setProperty(
+        "--on-accent",
+        rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114 > 155
+          ? "#171820"
+          : "#ffffff",
+      );
     };
     apply();
     query.addEventListener("change", apply);
@@ -131,13 +152,80 @@ function App() {
     return () => clearTimeout(t);
   }, [notice]);
   const save = async (patch: Partial<Settings>) => {
-    if (!settings) return;
-    const next = { ...settings, ...patch };
+    if (!settingsRef.current) return;
+    const next = { ...settingsRef.current, ...patch };
+    settingsRef.current = next;
+    setSettings(next);
+    setSaving(true);
+    setSaveError(false);
+    saveQueue.current = saveQueue.current
+      .catch(() => {})
+      .then(() => call("save_settings", { value: next }));
     try {
-      await call("save_settings", { value: next });
-      setSettings(next);
+      await saveQueue.current;
     } catch (e) {
-      notify(String(e));
+      setSaveError(true);
+      notify("Preferences could not be saved: " + String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  useEffect(() => {
+    if (!account || !info) return;
+    const refresh = async () => {
+      try {
+        const state = await api<Account>(
+          "/network/status?version=" + info.version,
+        );
+        setAccount(state);
+        setAdmin(state.role === "admin");
+        if (!desktop) {
+          setStatus(
+            state.update
+              ? {
+                  phase: "ready",
+                  message:
+                    "A new web version is available. Reload to apply the update.",
+                  version: state.update.version,
+                  notes: state.update.notes,
+                  progress: 0,
+                }
+              : {
+                  phase: "current",
+                  message: "The latest web version is loaded.",
+                  notes: "",
+                  progress: 0,
+                },
+          );
+        }
+      } catch (e) {
+        if (String(e).includes("expired") || String(e).includes("sign-in")) {
+          setAccount(undefined);
+          setAdmin(false);
+        }
+      }
+    };
+    refresh();
+    const timer = setInterval(refresh, 20000);
+    window.addEventListener("corelum-check", refresh);
+    const out = () => {
+      setAccount(undefined);
+      setAdmin(false);
+    };
+    window.addEventListener("corelum-signed-out", out);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("corelum-check", refresh);
+      window.removeEventListener("corelum-signed-out", out);
+    };
+  }, [account?.id, info?.version]);
+  const signOut = async () => {
+    try {
+      await call("logout");
+    } catch {
+    } finally {
+      setAccount(undefined);
+      setAdmin(false);
     }
   };
   const action = async (command: string) => {
@@ -147,30 +235,43 @@ function App() {
       notify(String(e));
     }
   };
-  if (!settings || !info)
+  if (!settings || !info || authLoading)
     return (
       <div className="launch">
-        <div className="brand-mark">n</div>
+        <BrandMark size={36} />
         <Loader2 className="spin" />
         <p>{notice || "Preparing your workspace"}</p>
       </div>
     );
+  if (!account)
+    return (
+      <SignIn
+        onSignedIn={(a) => {
+          setAccount(a);
+          setAdmin(a.role === "admin");
+          setPage("home");
+        }}
+      />
+    );
+  if (account.role !== "admin" && account.maintenance)
+    return <Maintenance signOut={signOut} />;
   const feature = modules.find((m) => m.id === page),
     Component = feature?.component;
   const nav = [
     { id: "home", title: "Home" },
-    ...modules.map((m) => ({ id: m.id, title: m.title })),
+    ...(admin ? modules.map((m) => ({ id: m.id, title: m.title })) : []),
   ];
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">n</div>
-          <span>
-            nimbus<span className="brand-dot">.</span>
-          </span>
+        <div
+          className="brand"
+          aria-label="Corelum Network"
+          title="Corelum Network"
+        >
+          <BrandMark size={40} />
         </div>
-        <div className="space-label">PERSONAL WORKSPACE</div>
+        <div className="space-label">STUDIO</div>
         <nav>
           {nav.map((item) => {
             const Icon = icons[item.id as keyof typeof icons] || Box;
@@ -188,19 +289,16 @@ function App() {
           })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-card">
-            <div className="small-icon">
-              <Sparkles size={18} />
+          <div className="sidebar-service">
+            <span className="status-dot" />
+            <div>
+              Desktop client
+              <small>
+                {info.serviceConfigured
+                  ? "Update service connected"
+                  : "Offline configuration"}
+              </small>
             </div>
-            <strong>Built to keep growing.</strong>
-            <p>
-              One foundation.
-              <br />
-              Endless possibilities.
-            </p>
-            <span>
-              THE NIMBUS FOUNDATION <ArrowUpRight size={13} />
-            </span>
           </div>
           <button
             className={`nav-item ${page === "settings" ? "active" : ""}`}
@@ -215,12 +313,12 @@ function App() {
               onClick={() => setPage("development")}
             >
               <Code2 size={19} />
-              Development & Updates
+              Development Studio
             </button>
           )}
           <div className="sidebar-version">
             <span className="status-dot" />
-            Nimbus {info.version}
+            Corelum Network {info.version}
             <span>{settings.channel}</span>
           </div>
         </div>
@@ -235,30 +333,36 @@ function App() {
                 : page === "settings"
                   ? "Settings"
                   : page === "development"
-                    ? "Development & Updates"
+                    ? "Development Studio"
                     : feature?.title}
             </strong>
           </div>
           <div className="header-right">
             <span className="tiny-dot" />
             {info.serviceConfigured
-              ? "Connected to Nimbus"
-              : "Local foundation"}
-            <span className="avatar">N</span>
+              ? "Connected to Corelum"
+              : "Service not configured"}
+            <span className="header-role">{account.username}</span>
+            <button
+              className="icon-button"
+              aria-label="Sign out"
+              onClick={signOut}
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </header>
         <main key={page}>
-          {page === "home" && (
+          {page === "home" && admin && (
             <>
               <div className="page-heading">
                 <div>
-                  <span className="eyebrow">
-                    A LITTLE SPACE. A LOT OF POSSIBILITY.
-                  </span>
-                  <h1>
-                    Welcome to Nimbus<span className="accent">.</span>
-                  </h1>
-                  <p>Your workspace, continuously evolving.</p>
+                  <span className="eyebrow">CORELUM NETWORK</span>
+                  <h1>Overview</h1>
+                  <p>
+                    Manage your workspace, preferences, and application
+                    releases.
+                  </p>
                 </div>
                 <div className="date-chip">
                   {new Date().toLocaleDateString("en-GB", {
@@ -268,45 +372,33 @@ function App() {
                   })}
                 </div>
               </div>
-              <section className="hero panel">
+              <section className="hero panel studio-hero">
                 <div className="hero-copy">
-                  <div className="pill">
-                    <span className="status-dot" /> THE FOUNDATION RELEASE
-                  </div>
-                  <h2>
-                    A fresh start.
-                    <br />
-                    <span>Room to build anything.</span>
-                  </h2>
+                  <span className="pill">
+                    <span className="status-dot" />
+                    {info.serviceConfigured
+                      ? "Service connected"
+                      : "Local workspace"}
+                  </span>
+                  <h2>Your development workspace</h2>
                   <p>
-                    A focused home for your tools, ideas, and whatever comes
-                    next.
+                    Create and update projects using file drops.
                     <br />
-                    Always connected. Always moving forward.
+                    Review changes, build releases, and manage distribution.
                   </p>
                   <button
                     className="primary"
                     onClick={() => setPage("workspace")}
                   >
-                    Open your workspace <ArrowRight size={16} />
+                    Open workspace
                   </button>
                 </div>
-                <div className="hero-art" aria-hidden="true">
-                  <div className="art-orbit orbit-a" />
-                  <div className="art-orbit orbit-b" />
-                  <div className="art-orbit orbit-c" />
-                  <div className="glass-block block-back" />
-                  <div className="glass-block block-main">
-                    <span>n</span>
-                  </div>
-                  <div className="art-star star-a">✦</div>
-                  <div className="art-star star-b">✦</div>
-                  <span className="art-label">DESIGNED TO EVOLVE</span>
+                <div className="product-emblem">
+                  <BrandMark size={114} />
+                  <div className="emblem-line" />
                 </div>
               </section>
-              <div className="section-label">
-                YOUR FOUNDATION <span>Everything in its place.</span>
-              </div>
+              <div className="section-label">APPLICATION STATUS</div>
               <div className="stats-grid">
                 <article className="panel stat">
                   <div className="stat-top">
@@ -315,60 +407,55 @@ function App() {
                     </span>
                     <span className="badge">Installed</span>
                   </div>
-                  <span className="stat-caption">Application version</span>
+                  <span className="stat-caption">Current version</span>
                   <h3>
                     {info.version}
                     <span>{settings.channel}</span>
                   </h3>
-                  <p>A stable starting point for what’s next.</p>
+                  <p>{info.build}</p>
                 </article>
                 <article className="panel stat">
                   <div className="stat-top">
                     <span className="icon-box mint">
                       <ShieldCheck size={19} />
                     </span>
-                    <span
-                      className={`badge ${status.phase === "error" ? "warning" : ""}`}
-                    >
-                      {status.phase === "unconfigured"
-                        ? "Setup needed"
-                        : status.phase === "ready"
-                          ? "Ready"
-                          : "Signed updates"}
-                    </span>
+                    <span className="badge">Verified delivery</span>
                   </div>
-                  <span className="stat-caption">Update status</span>
+                  <span className="stat-caption">Updates</span>
                   <h3>
                     {status.phase === "current"
                       ? "Up to date"
-                      : status.phase === "unconfigured"
-                        ? "Not connected"
-                        : status.phase === "downloading"
-                          ? `${status.progress}%`
-                          : "Ready to evolve"}
+                      : status.phase === "downloading"
+                        ? `${status.progress}%`
+                        : status.phase === "ready"
+                          ? "Ready to install"
+                          : status.phase === "error"
+                            ? "Connection issue"
+                            : status.phase === "unconfigured"
+                              ? "Not configured"
+                              : "Checking"}
                   </h3>
                   <p>{status.message}</p>
                 </article>
                 <article className="panel stat">
                   <div className="stat-top">
-                    <span className="icon-box peach">
+                    <span className="icon-box">
                       <Layers3 size={19} />
                     </span>
-                    <ArrowUpRight size={16} />
+                    <span className="badge">Workspace</span>
                   </div>
-                  <span className="stat-caption">Your workspace</span>
+                  <span className="stat-caption">Available pages</span>
                   <h3>
                     {modules.length}
-                    <span>{modules.length === 1 ? "module" : "modules"}</span>
+                    <span>{modules.length === 1 ? "page" : "pages"}</span>
                   </h3>
-                  <p>A modular foundation. More on the way.</p>
+                  <p>Installed workspace modules.</p>
                 </article>
               </div>
               <div className="lower-grid">
                 <section className="panel quick">
                   <div className="panel-title">
-                    <h3>Make yourself at home</h3>
-                    <SlidersHorizontal size={18} />
+                    <h3>Preferences</h3>
                   </div>
                   <button
                     className="quick-row"
@@ -378,60 +465,89 @@ function App() {
                       <Palette size={18} />
                     </span>
                     <span>
-                      <strong>A workspace that feels like you</strong>
-                      <small>
-                        Fine-tune appearance, accent, and preferences.
-                      </small>
+                      <strong>Appearance</strong>
+                      <small>Colour mode and accent settings.</small>
                     </span>
-                    <ChevronRight size={17} />
                   </button>
                   <button
                     className="quick-row"
                     onClick={() => setPage("settings")}
                   >
-                    <span className="icon-box mint">
+                    <span className="icon-box">
                       <RefreshCw size={18} />
                     </span>
                     <span>
-                      <strong>Stay a step ahead</strong>
+                      <strong>Application updates</strong>
                       <small>
-                        Manage your update channel and installation.
+                        Release channel and installation preferences.
                       </small>
                     </span>
-                    <ChevronRight size={17} />
                   </button>
                 </section>
                 <section className="panel note-card">
                   <div className="panel-title">
-                    <h3>Made for what’s next</h3>
-                    <span className="badge">1.0</span>
+                    <h3>Release information</h3>
+                    <span className="badge">{settings.channel}</span>
                   </div>
                   <p>
-                    This is just the beginning. Your tools, pages, and features
-                    will grow through secure updates.
+                    {status.notes ||
+                      `Version ${info.version} is installed. Release notes are available in Settings.`}
                   </p>
-                  <div>
-                    <span className="tiny-dot" /> Your settings come with you.
-                  </div>
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setHistory([
+                        {
+                          version: info.version,
+                          notes:
+                            status.notes ||
+                            "Corelum Network: workspace, file-drop review, deployment management, and verified application updates.",
+                        },
+                      ]);
+                    }}
+                  >
+                    View release notes
+                  </button>
                 </section>
               </div>
               <footer>
                 <span className="status-dot" />
-                YOUR SPACE. ALWAYS EVOLVING.
-                <span>NIMBUS FOUNDATION / {info.version}</span>
+                Corelum Network<span>Version {info.version}</span>
               </footer>
             </>
           )}
-          {Component && <Component />}
+          {page === "home" && !admin && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">CORELUM NETWORK</span>
+                  <h1>Your personal workspace</h1>
+                  <p>Welcome, {account.username}.</p>
+                </div>
+              </div>
+              <section className="panel personal-home">
+                <BrandMark size={54} />
+                <h2>Your account is ready</h2>
+                <p>Personal tools will be available here.</p>
+              </section>
+            </>
+          )}
+          {Component && admin && <Component />}
           {page === "settings" && (
             <>
               <div className="page-heading">
                 <div>
-                  <span className="eyebrow">MAKE IT YOURS</span>
+                  <span className="eyebrow">PREFERENCES</span>
                   <h1>Settings</h1>
-                  <p>Thoughtful defaults. Personal touches.</p>
+                  <p>Configure appearance, startup, and update behaviour.</p>
                 </div>
-                <span className="badge">Saved automatically</span>
+                <span className={`badge ${saveError ? "warning" : ""}`}>
+                  {saveError
+                    ? "Changes not saved"
+                    : saving
+                      ? "Saving…"
+                      : "All changes saved"}
+                </span>
               </div>
               <section className="panel settings-panel">
                 <h3>
@@ -441,7 +557,7 @@ function App() {
                 <div className="setting-row">
                   <div>
                     <strong>Colour mode</strong>
-                    <small>Choose how Nimbus looks on your device.</small>
+                    <small>Choose how Corelum looks on your device.</small>
                   </div>
                   <div className="segmented">
                     {(["dark", "light", "system"] as const).map((m, i) => {
@@ -464,7 +580,9 @@ function App() {
                 <div className="setting-row">
                   <div>
                     <strong>Accent colour</strong>
-                    <small>A little colour, your way.</small>
+                    <small>
+                      Applied to navigation, buttons, and interface highlights.
+                    </small>
                   </div>
                   <div className="swatches">
                     {[
@@ -527,7 +645,7 @@ function App() {
                 </Setting>
                 <Setting
                   label="Close to system tray"
-                  detail="Keep Nimbus running and checking for updates when you close the window."
+                  detail="Keep Corelum running and checking for updates when you close the window."
                 >
                   <Toggle
                     label="Close to tray"
@@ -557,7 +675,7 @@ function App() {
                 </Setting>
                 <Setting
                   label="Automatic checks"
-                  detail="Check on launch and every 20 seconds while Nimbus is running."
+                  detail="Check on launch and every 20 seconds while Corelum is running."
                 >
                   <Toggle
                     label="Automatic checks"
@@ -577,7 +695,7 @@ function App() {
                 </Setting>
                 <Setting
                   label="Install updates"
-                  detail="Automatic mode restarts Nimbus 20 seconds after verification."
+                  detail="Automatic mode restarts Corelum 20 seconds after verification."
                 >
                   <select
                     value={settings.installation}
@@ -590,7 +708,7 @@ function App() {
                   >
                     <option value="automatic">Automatically restart</option>
                     <option value="prompt">Ask before restarting</option>
-                    <option value="onExit">When I quit Nimbus</option>
+                    <option value="onExit">When I quit Corelum</option>
                   </select>
                 </Setting>
                 <div className="update-box">
@@ -649,7 +767,7 @@ function App() {
                           version: info.version,
                           notes:
                             status.notes ||
-                            "Foundation release: modular workspace, personal settings, administrator deployment tools, and a signed update client.",
+                            "Corelum Network: workspace, preferences, file-drop review, and application updates.",
                         },
                       ]);
                     }}
@@ -659,32 +777,37 @@ function App() {
                   </button>
                 </div>
               </section>
-              <section className="panel settings-panel">
-                <h3>
-                  <Code2 size={18} />
-                  Development & Updates
-                </h3>
-                <Setting
-                  label="Release administration"
-                  detail={
-                    admin
-                      ? "You are signed in as an administrator."
-                      : "Sign in to review ZIP updates and publish releases."
-                  }
-                >
-                  <button
-                    className="secondary"
-                    onClick={() => setPage("development")}
-                  >
-                    {admin ? "Open administration" : "Administrator sign-in"}
-                    <ArrowUpRight size={15} />
-                  </button>
-                </Setting>
-              </section>
+              {admin && (
+                <>
+                  <section className="panel settings-panel">
+                    <h3>
+                      <Code2 size={18} />
+                      Development Studio
+                    </h3>
+                    <Setting
+                      label="Release administration"
+                      detail={
+                        admin
+                          ? "You are signed in as an administrator."
+                          : "Sign in to review ZIP updates and publish releases."
+                      }
+                    >
+                      <button
+                        className="secondary"
+                        onClick={() => setPage("development")}
+                      >
+                        {admin
+                          ? "Open administration"
+                          : "Administrator sign-in"}
+                      </button>
+                    </Setting>
+                  </section>
+                </>
+              )}
               <div className="about-line">
-                <div className="brand-mark small">n</div>
+                <BrandMark size={28} />
                 <span>
-                  Nimbus {info.version}
+                  Corelum Network {info.version}
                   <small>{info.build}</small>
                 </span>
                 <code>
@@ -695,7 +818,7 @@ function App() {
               </div>
             </>
           )}
-          {page === "development" && (
+          {page === "development" && admin && (
             <Development
               admin={admin}
               setAdmin={setAdmin}
@@ -709,7 +832,7 @@ function App() {
           <div className="update-banner">
             <ShieldCheck size={19} />
             <div>
-              <strong>Nimbus {status.version} is ready</strong>
+              <strong>Update pending · {status.version}</strong>
               <span>
                 {settings.installation === "automatic"
                   ? "Restarting automatically after verification."
@@ -726,7 +849,7 @@ function App() {
               className="primary"
               onClick={() => action("install_update")}
             >
-              Restart now
+              {desktop ? "Restart now" : "Reload now"}
             </button>
           </div>
         )}
@@ -829,7 +952,10 @@ function Autostart({ notify }: { notify: (m: string) => void }) {
         .catch((e) => notify(String(e)));
   }, []);
   return (
-    <Setting label="Launch with Windows" detail="Open Nimbus when you sign in.">
+    <Setting
+      label="Launch with Windows"
+      detail="Open Corelum when you sign in."
+    >
       <Toggle
         label="Launch with Windows"
         value={active}
@@ -869,6 +995,7 @@ function Development({
     [releases, setReleases] = useState<Release[]>([]),
     [review, setReview] = useState<any>(),
     [autoPublish, setAutoPublish] = useState(false),
+    [maintenance, setMaintenance] = useState(false),
     [base, setBase] = useState("");
   const load = useCallback(async () => {
     if (!admin) return;
@@ -881,6 +1008,7 @@ function Development({
     setDeployments(d);
     setReleases(r);
     setAutoPublish(!!p.auto_publish);
+    setMaintenance(!!p.maintenance);
     setBase(s.baseCommit);
   }, [admin, settings.channel]);
   useEffect(() => {
@@ -901,11 +1029,18 @@ function Development({
     return () => clearInterval(t);
   }, [load, admin]);
   useEffect(() => {
+    const browserProgress = (e: Event) =>
+      setProgress((e as CustomEvent<number>).detail);
+    window.addEventListener("corelum-upload-progress", browserProgress);
+    if (!desktop)
+      return () =>
+        window.removeEventListener("corelum-upload-progress", browserProgress);
     if (!desktop) return;
     const a = listen<any>("zip-selected", (e) => setSelected(e.payload)),
       b = listen<string>("zip-error", (e) => notify(e.payload)),
       c = listen<number>("upload-progress", (e) => setProgress(e.payload));
     return () => {
+      window.removeEventListener("corelum-upload-progress", browserProgress);
       [a, b, c].forEach((p) => p.then((f) => f()));
     };
   }, []);
@@ -931,9 +1066,11 @@ function Development({
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">BUILD. REVIEW. RELEASE.</span>
-          <h1>Development & Updates</h1>
-          <p>A clear path from your next idea to everyone’s workspace.</p>
+          <span className="eyebrow">RELEASE MANAGEMENT</span>
+          <h1>Development Studio</h1>
+          <p>
+            Review file drops, monitor builds, and publish verified releases.
+          </p>
         </div>
         <span className="badge">
           <ShieldCheck size={13} />
@@ -1026,7 +1163,7 @@ function Development({
                   })
                 }
               >
-                Build initial release <ArrowUpRight size={15} />
+                Build initial release
               </button>
             </section>
           )}
@@ -1064,17 +1201,33 @@ function Development({
             <div className="panel-title">
               <h3>
                 <Upload size={18} />
-                Upload development ZIP
+                Upload file drop
               </h3>
               <span className="badge">4 MiB maximum</span>
             </div>
-            <div className="dropzone">
+            <div
+              className="dropzone"
+              onDragOver={(e) => {
+                if (!desktop) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                if (!desktop) {
+                  e.preventDefault();
+                  try {
+                    if (e.dataTransfer.files[0])
+                      setSelected(acceptFile(e.dataTransfer.files[0]));
+                  } catch (error) {
+                    notify(String(error));
+                  }
+                }
+              }}
+            >
               <FileArchive size={33} />
-              <h3>{selected?.name || "Drop your next release here"}</h3>
+              <h3>{selected?.name || "Drop a ZIP file here"}</h3>
               <p>
                 {selected
                   ? `${(selected.size / 1024).toFixed(1)} KiB · Ready to validate`
-                  : "A development ZIP with update.json, feature code, and assets."}
+                  : "A ZIP containing update.json and the changed project files."}
               </p>
               <div className="button-row">
                 <button
@@ -1247,7 +1400,6 @@ function Development({
                       }
                     >
                       Publish update
-                      <ArrowUpRight size={16} />
                     </button>
                   )}
                   <small>{new Date(d.created_at).toLocaleString()}</small>
@@ -1260,6 +1412,21 @@ function Development({
               <Radio size={18} />
               Publishing policy
             </h3>
+            <Setting
+              label="Maintenance mode"
+              detail="Block regular accounts from accessing Corelum Network. Administrators retain access."
+            >
+              <Toggle
+                label="Maintenance mode"
+                value={maintenance}
+                change={(v) =>
+                  run(async () => {
+                    await api("/policy", "PUT", { maintenance: v });
+                    setMaintenance(v);
+                  })
+                }
+              />
+            </Setting>
             <Setting
               label="Automatically publish passing builds"
               detail="Approved archives are published after all required build, test, and signing stages pass."
@@ -1336,12 +1503,12 @@ class ErrorBoundary extends React.Component<
   render() {
     return this.state.error ? (
       <div className="launch">
-        <h1>Nimbus couldn’t display this page.</h1>
+        <h1>Corelum couldn’t display this page.</h1>
         <p>
           Your local settings are preserved. Restart the application to recover.
         </p>
         <button className="primary" onClick={() => location.reload()}>
-          Reload Nimbus
+          Reload Corelum
         </button>
       </div>
     ) : (

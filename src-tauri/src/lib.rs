@@ -11,7 +11,7 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::UpdaterExt;
 
-const SERVICE: &str = match option_env!("NIMBUS_SERVICE_URL") {
+const SERVICE: &str = match option_env!("CORELUM_SERVICE_URL") {
     Some(s) => s,
     None => "",
 };
@@ -59,9 +59,23 @@ fn get_settings(state: State<AppState>) -> Settings {
     state.settings.lock().unwrap().clone()
 }
 #[tauri::command]
-fn save_settings(value: Settings, state: State<AppState>) -> Result<(), String> {
+fn save_settings(
+    value: Settings,
+    app: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let mut current = state.settings.lock().unwrap();
     settings::save(&state.path, &value)?;
-    *state.settings.lock().unwrap() = value;
+    *current = value.clone();
+    drop(current);
+    if let Some(window) = app.get_webview_window("main") {
+        let theme = match value.appearance.as_str() {
+            "light" => Some(tauri::Theme::Light),
+            "dark" => Some(tauri::Theme::Dark),
+            _ => None,
+        };
+        let _ = window.set_theme(theme);
+    }
     Ok(())
 }
 #[tauri::command]
@@ -175,7 +189,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         &app,
         UpdateStatus {
             phase: "installing".into(),
-            message: "Installing verified update. Nimbus will reopen shortly.".into(),
+            message: "Installing verified update. Corelum will reopen shortly.".into(),
             progress: 100,
             ..Default::default()
         },
@@ -188,7 +202,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 fn credentials() -> Result<keyring::Entry, String> {
-    keyring::Entry::new("com.nimbus.foundation", "admin-session")
+    keyring::Entry::new("com.corelum.network", "admin-session")
         .map_err(|_| "Windows Credential Manager is unavailable".into())
 }
 fn client() -> Result<reqwest::Client, String> {
@@ -262,6 +276,17 @@ async fn login(app: tauri::AppHandle, email: String, password: String) -> Result
     Ok(())
 }
 #[tauri::command]
+async fn register(app: tauri::AppHandle, username: String, password: String) -> Result<(), String> {
+    request(
+        &app,
+        "/auth/register",
+        "POST",
+        Some(serde_json::json!({"username":username,"password":password}).to_string()),
+    )
+    .await
+    .map(|_| ())
+}
+#[tauri::command]
 async fn logout(app: tauri::AppHandle) -> Result<(), String> {
     let result = request(&app, "/logout", "POST", None).await;
     let _ = credentials()?.delete_credential();
@@ -276,7 +301,13 @@ async fn admin_api(
     data: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if method != "GET"
-        && (path.ends_with("/publish") || path == "/policy")
+        && (path.ends_with("/publish")
+            || (path == "/policy"
+                && data
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                    .and_then(|v| v["autoPublish"].as_bool())
+                    == Some(true)))
         && !host::deployment_ready()
     {
         return Err(
@@ -387,8 +418,8 @@ pub fn run() {
   let token=credentials().ok().and_then(|e|e.get_password().ok());let marker=dir.join("pending-install.json");let mut initial=UpdateStatus{phase:"idle".into(),message:"Ready to check for updates".into(),..Default::default()};
   if let Ok(bytes)=std::fs::read(&marker){if let Ok(pending)=serde_json::from_slice::<serde_json::Value>(&bytes){let success=pending["to"].as_str()==Some(&app.package_info().version.to_string());initial.message=if success{"Update installed successfully. Your settings are preserved."}else{"The previous update did not complete. A new download will be attempted."}.into();let history_path=dir.join("history.json");let mut history:Vec<serde_json::Value>=std::fs::read(&history_path).ok().and_then(|b|serde_json::from_slice(&b).ok()).unwrap_or_default();history.insert(0,serde_json::json!({"version":pending["to"],"from":pending["from"],"success":success,"at":stamp()}));history.truncate(50);let _=std::fs::write(history_path,serde_json::to_vec_pretty(&history).unwrap());}let _=std::fs::remove_file(marker);}
   app.manage(AppState{settings:Mutex::new(prefs),settings_error:Mutex::new(error),status:Mutex::new(initial),pending:tokio::sync::Mutex::new(None),operation:tokio::sync::Mutex::new(()),token:Mutex::new(token),selected:Mutex::new(None),path});
-  let show=tauri::menu::MenuItem::with_id(app,"show","Open Nimbus",true,None::<&str>)?;let quit=tauri::menu::MenuItem::with_id(app,"quit","Quit Nimbus",true,None::<&str>)?;let menu=tauri::menu::Menu::with_items(app,&[&show,&quit])?;
-  tauri::tray::TrayIconBuilder::new().icon(app.default_window_icon().unwrap().clone()).tooltip("Nimbus").menu(&menu).on_menu_event(|app,event|{if event.id.as_ref()=="show"{if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}}else if event.id.as_ref()=="quit"{let handle=app.clone();tauri::async_runtime::spawn(async move{let should=handle.state::<AppState>().settings.lock().unwrap().installation=="onExit";if should {if install_update(handle.clone()).await.is_ok(){return}}handle.exit(0);});}}).build(app)?;
+  let show=tauri::menu::MenuItem::with_id(app,"show","Open Corelum",true,None::<&str>)?;let quit=tauri::menu::MenuItem::with_id(app,"quit","Quit Corelum",true,None::<&str>)?;let menu=tauri::menu::Menu::with_items(app,&[&show,&quit])?;
+  tauri::tray::TrayIconBuilder::new().icon(app.default_window_icon().unwrap().clone()).tooltip("Corelum").menu(&menu).on_menu_event(|app,event|{if event.id.as_ref()=="show"{if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}}else if event.id.as_ref()=="quit"{let handle=app.clone();tauri::async_runtime::spawn(async move{let should=handle.state::<AppState>().settings.lock().unwrap().installation=="onExit";if should {if install_update(handle.clone()).await.is_ok(){return}}handle.exit(0);});}}).build(app)?;
   if let Some(w)=app.get_webview_window("main"){
     if start_minimized&&std::env::args().any(|a|a=="--autostart"){let _=w.hide();}
     let handle=app.handle().clone();
@@ -408,6 +439,6 @@ pub fn run() {
   }
   let handle=app.handle().clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_secs(2)).await;loop{let _=perform_check(&handle,false).await;tokio::time::sleep(Duration::from_secs(20)).await;}});Ok(())
  })
- .invoke_handler(tauri::generate_handler![app_info,get_settings,save_settings,update_status,check_updates,download_update,install_update,login,logout,admin_api,choose_zip,upload_zip,update_history])
- .run(tauri::generate_context!()).expect("Nimbus could not start");
+ .invoke_handler(tauri::generate_handler![app_info,get_settings,save_settings,update_status,check_updates,download_update,install_update,login,register,logout,admin_api,choose_zip,upload_zip,update_history])
+ .run(tauri::generate_context!()).expect("Corelum could not start");
 }

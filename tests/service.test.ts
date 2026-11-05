@@ -31,7 +31,7 @@ beforeAll(async () => {
         BOOTSTRAP_TOKEN: "b".repeat(64),
         SESSION_PEPPER: "p".repeat(64),
         PUBLIC_ORIGIN: origin,
-        GITHUB_REPOSITORY: "owner/nimbus",
+        GITHUB_REPOSITORY: "owner/corelum",
         SOURCE_BASE_SHA: "a".repeat(40),
       },
     }),
@@ -39,7 +39,15 @@ beforeAll(async () => {
   db = await mf.getD1Database("DB");
   bucket = new SqlObjectStore(db as any, "artifacts");
   await db.exec(readFileSync("service/migrations/0001_initial.sql", "utf8"));
-  await db.exec(readFileSync("service/migrations/0002_object_storage.sql", "utf8"));
+  await db.exec(
+    readFileSync("service/migrations/0002_object_storage.sql", "utf8"),
+  );
+  await db.exec(
+    readFileSync(
+      "service/migrations/0003_accounts_and_maintenance.sql",
+      "utf8",
+    ),
+  );
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
@@ -84,7 +92,7 @@ describe("real Worker and SQL integration", () => {
   it("publishes a passing build atomically and selects the new version", async () => {
     const id = "12345678-1234-1234-1234-123456789012",
       source = "c".repeat(40),
-      key = `${id}/Nimbus_1.0.1_x64-setup.exe`,
+      key = `${id}/CorelumNetwork_1.0.1_x64-setup.exe`,
       hash = "f".repeat(64);
     const manifest = {
       version: "1.0.1",
@@ -121,6 +129,10 @@ describe("real Worker and SQL integration", () => {
         asset_id: 12345,
         signature: "s".repeat(100),
       }),
+    );
+    await new SqlObjectStore(db as any, "web").put(
+      `${id}/index.html`,
+      "<!doctype html><title>Corelum Network</title>",
     );
     const publish = await request(
       `/deployments/${id}/publish`,
@@ -159,6 +171,43 @@ describe("real Worker and SQL integration", () => {
     );
     const u = new URL(releases[0].url);
     expect((await request(u.pathname)).status).toBe(404);
+  });
+  it("does not allow registration to grant an administrator role", async () => {
+    expect(
+      (
+        await request("/auth/register", "POST", {
+          username: "regular_member",
+          password: "test account password",
+          role: "admin",
+        })
+      ).status,
+    ).toBe(201);
+    const response = await request("/auth/login", "POST", {
+      username: "regular_member",
+      password: "test account password",
+    });
+    expect(response.status).toBe(200);
+    const member = (await response.json()) as any;
+    expect(member.role).toBe("user");
+    for (const path of ["/deployments", "/policy", "/releases", "/source"])
+      expect((await request(path, "GET", undefined, member.token)).status).toBe(
+        403,
+      );
+    expect(
+      (await request("/policy", "PUT", { maintenance: true }, member.token))
+        .status,
+    ).toBe(403);
+    expect(
+      (await request("/policy", "PUT", { maintenance: true }, token)).status,
+    ).toBe(200);
+    const status = (await (
+      await request("/network/status", "GET", undefined, member.token)
+    ).json()) as any;
+    expect(status.maintenance).toBe(true);
+    expect(status.role).toBe("user");
+    expect(
+      (await request("/policy", "PUT", { maintenance: false }, token)).status,
+    ).toBe(200);
   });
   it("revokes the session on logout", async () => {
     expect((await request("/logout", "POST", undefined, token)).status).toBe(

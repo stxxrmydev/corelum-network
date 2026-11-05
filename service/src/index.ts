@@ -11,12 +11,16 @@ import {
   randomToken,
   passwordHash,
   requireAdmin,
+  requireSession,
   tokenHash,
 } from "./auth";
 import { github, summarize, integrate, type GitEnv } from "./github";
 import { requireBuild } from "./ci";
 import { SqlObjectStore } from "./storage";
+import { unzipSync } from "fflate";
+import { safePath } from "../../shared/archive";
 interface Env extends GitEnv {
+  ASSETS: Fetcher;
   DB: D1Database;
   BOOTSTRAP_TOKEN: string;
   SESSION_PEPPER: string;
@@ -82,7 +86,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     path = url.pathname;
   if (path === "/health")
     return json({
-      service: "Nimbus Control",
+      service: "Corelum Control",
       schema: 1,
       configured: !!env.GITHUB_TOKEN,
     });
@@ -91,19 +95,48 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       503,
       "Administration service configuration is incomplete",
     );
-  const ci = path.match(/^\/ci\/(manifest)\/([a-f0-9-]{36})$/);
+  const ci = path.match(/^\/ci\/(manifest|web)\/([a-f0-9-]{36})$/);
   if (ci && req.method === "PUT") {
     const [, kind, id] = ci;
     await requireBuild(req, env, id);
     const d = await loadDeployment(env, id);
     if (["Released", "Failed", "Reviewing", "Integrating"].includes(d.status))
       throw new HttpError(409, "Deployment cannot accept build artifacts");
+    if (kind === "web") {
+      const bytes = await boundedBytes(req, 4194304);
+      let total = 0,
+        count = 0;
+      const files = unzipSync(bytes, {
+        filter: (f) => {
+          safePath(f.name);
+          count++;
+          total += f.originalSize;
+          if (count > 100 || f.originalSize > 2097152 || total > 8388608)
+            throw new HttpError(422, "Web bundle exceeds limits");
+          return true;
+        },
+      });
+      if (!files["index.html"])
+        throw new HttpError(422, "Web entry page is missing");
+      const store = new SqlObjectStore(env.DB, "web");
+      for (const [name, data] of Object.entries(files)) {
+        if (
+          name !== "index.html" &&
+          !/^[a-zA-Z0-9_./-]+\.(js|css|woff2?|png|jpg|webp|svg|ico|json|txt)$/.test(
+            name,
+          )
+        )
+          throw new HttpError(422, "Unsupported web asset");
+        await store.put(`${id}/${name}`, data);
+      }
+      return json({ ok: true });
+    }
     const b = await body(req);
     if (
       b.deployment_id !== id ||
       b.version !== d.version ||
       b.source_sha !== d.source_sha ||
-      b.key !== `${id}/Nimbus_${d.version}_x64-setup.exe` ||
+      b.key !== `${id}/CorelumNetwork_${d.version}_x64-setup.exe` ||
       typeof b.signature !== "string" ||
       b.signature.length < 50 ||
       !/^[a-f0-9]{64}$/.test(b.sha256) ||
@@ -160,7 +193,9 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   }
   if (path.startsWith("/artifacts/") && req.method === "GET") {
     const key = path.slice(11);
-    if (!/^[a-f0-9-]{36}\/Nimbus_[a-zA-Z0-9.-]+_x64-setup.exe$/.test(key))
+    if (
+      !/^[a-f0-9-]{36}\/CorelumNetwork_[a-zA-Z0-9.-]+_x64-setup.exe$/.test(key)
+    )
       throw new HttpError(404, "Artifact not found");
     const id = key.split("/")[0];
     const allowed = await env.DB.prepare(
@@ -185,7 +220,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
           ...forward,
           Authorization: `Bearer ${env.GITHUB_TOKEN}`,
           Accept: "application/octet-stream",
-          "User-Agent": "Nimbus-Control",
+          "User-Agent": "Corelum-Control",
         },
         redirect: "manual",
       },
@@ -223,6 +258,29 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   if (path.startsWith("/auth/") && req.method === "POST") {
     await rateLimit(req, env);
     const b = await body(req);
+    if (path === "/auth/register") {
+      const username = String(b.username || "")
+        .trim()
+        .toLowerCase();
+      if (
+        !/^[a-z0-9_.-]{3,32}$/.test(username) ||
+        typeof b.password !== "string"
+      )
+        throw new HttpError(
+          400,
+          "Use a username of 3–32 letters, numbers, dots, or underscores.",
+        );
+      const salt = randomToken(),
+        hash = await passwordHash(b.password, salt);
+      const result = await env.DB.prepare(
+        "INSERT INTO admins(id,email,salt,password_hash,created_at,role) SELECT ?,?,?,?,?,'user' WHERE NOT EXISTS(SELECT 1 FROM admins WHERE email=?)",
+      )
+        .bind(crypto.randomUUID(), username, salt, hash, now(), username)
+        .run();
+      if (!result.meta.changes)
+        throw new HttpError(409, "That username is unavailable");
+      return json({ ok: true }, 201);
+    }
     if (path === "/auth/setup") {
       if (
         !env.BOOTSTRAP_TOKEN ||
@@ -239,7 +297,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       const salt = randomToken(),
         hash = await passwordHash(b.password, salt);
       const result = await env.DB.prepare(
-        "INSERT INTO admins SELECT ?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM admins)",
+        "INSERT INTO admins(id,email,salt,password_hash,created_at) SELECT ?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM admins)",
       )
         .bind(crypto.randomUUID(), b.email.toLowerCase(), salt, hash, now())
         .run();
@@ -249,7 +307,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     }
     if (path === "/auth/login") {
       const admin = await env.DB.prepare("SELECT * FROM admins WHERE email=?")
-        .bind(String(b.email).toLowerCase())
+        .bind(String(b.username || b.email).toLowerCase())
         .first<any>();
       let candidate = "";
       try {
@@ -259,7 +317,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
         );
       } catch {}
       if (!admin || !equal(candidate, admin.password_hash))
-        throw new HttpError(401, "Email or password was not accepted");
+        throw new HttpError(401, "Username or password was not accepted");
       const token = randomToken();
       await env.DB.prepare("INSERT INTO sessions VALUES(?,?,?)")
         .bind(
@@ -268,33 +326,72 @@ export async function handle(req: Request, env: Env): Promise<Response> {
           Date.now() + 8 * 3600000,
         )
         .run();
-      return json({ token });
+      const response = json({ token, role: admin.role, username: admin.email });
+      response.headers.set(
+        "Set-Cookie",
+        `corelum_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`,
+      );
+      return response;
     }
   }
-  const actor = await requireAdmin(req, env.DB, env.SESSION_PEPPER);
-  if (path === "/me") return json({ role: "admin", id: actor });
-  if (path === "/logout" && req.method === "POST") {
-    await env.DB.prepare("DELETE FROM sessions WHERE hash=?")
-      .bind(
-        await tokenHash(
-          req.headers.get("Authorization")!.slice(7),
-          env.SESSION_PEPPER,
-        ),
-      )
-      .run();
-    return json({ ok: true });
+  if (path === "/me" || path === "/network/status") {
+    const session = await requireSession(req, env.DB, env.SESSION_PEPPER);
+    const policy = await env.DB.prepare(
+      "SELECT maintenance FROM policy WHERE id=1",
+    ).first<{ maintenance: number }>();
+    const rows = await env.DB.prepare(
+      "SELECT * FROM releases WHERE channel='stable' AND withdrawn=0",
+    ).all<Release>();
+    const release = selectRelease(
+      rows.results,
+      "stable",
+      url.searchParams.get("version") || "1.0.0",
+    );
+    return json({
+      id: session.admin_id,
+      username: session.username,
+      role: session.role,
+      maintenance: !!policy?.maintenance,
+      update: release
+        ? { version: release.version, notes: release.notes }
+        : null,
+    });
   }
+  if (path === "/logout" && req.method === "POST") {
+    await requireSession(req, env.DB, env.SESSION_PEPPER);
+    const token =
+      req.headers.get("Authorization")?.slice(7) ||
+      req.headers
+        .get("Cookie")
+        ?.match(/(?:^|;\s*)corelum_session=([a-f0-9]{64})(?:;|$)/)?.[1] ||
+      "";
+    await env.DB.prepare("DELETE FROM sessions WHERE hash=?")
+      .bind(await tokenHash(token, env.SESSION_PEPPER))
+      .run();
+    const response = json({ ok: true });
+    response.headers.set(
+      "Set-Cookie",
+      "corelum_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
+    );
+    return response;
+  }
+  const actor = await requireAdmin(req, env.DB, env.SESSION_PEPPER);
   if (path === "/policy") {
     if (req.method === "PUT") {
       const b = await body(req);
-      await env.DB.prepare("UPDATE policy SET auto_publish=? WHERE id=1")
-        .bind(b.autoPublish === true ? 1 : 0)
-        .run();
+      if (typeof b.autoPublish === "boolean")
+        await env.DB.prepare("UPDATE policy SET auto_publish=? WHERE id=1")
+          .bind(b.autoPublish ? 1 : 0)
+          .run();
+      if (typeof b.maintenance === "boolean")
+        await env.DB.prepare("UPDATE policy SET maintenance=? WHERE id=1")
+          .bind(b.maintenance ? 1 : 0)
+          .run();
       await audit(env, actor, "policy", "auto_publish");
     }
     return json(
       await env.DB.prepare(
-        "SELECT auto_publish FROM policy WHERE id=1",
+        "SELECT auto_publish,maintenance FROM policy WHERE id=1",
       ).first(),
     );
   }
@@ -333,7 +430,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       baseCommit: source,
       channel: "stable",
       minShellVersion: "1.0.0",
-      notes: "Nimbus Foundation. Your workspace, continuously evolving.",
+      notes: "Corelum Network initial release.",
       remove: [],
       urgent: false,
     };
@@ -534,7 +631,7 @@ async function refresh(env: Env, id: string, actor: string) {
     "/actions/workflows/release.yml/runs?event=workflow_dispatch&per_page=100",
   );
   const run = runs.workflow_runs.find(
-    (r: any) => r.display_title === `Nimbus ${id}`,
+    (r: any) => r.display_title === `Corelum ${id}`,
   );
   if (run) {
     let status = "Building";
@@ -579,7 +676,7 @@ async function publish(env: Env, id: string, actor: string) {
     object = await new SqlObjectStore(env.DB, "artifacts").get(key);
   if (!object) throw new HttpError(409, "Signed build manifest is missing");
   const artifact = await object.json<any>();
-  const expected = `${id}/Nimbus_${d.version}_x64-setup.exe`;
+  const expected = `${id}/CorelumNetwork_${d.version}_x64-setup.exe`;
   if (
     artifact.version !== d.version ||
     artifact.deployment_id !== id ||
@@ -592,6 +689,8 @@ async function publish(env: Env, id: string, actor: string) {
     throw new HttpError(422, "Signed build metadata does not match approval");
   if (!Number.isSafeInteger(artifact.asset_id) || artifact.asset_id < 1)
     throw new HttpError(422, "Signed installer reference is missing");
+  if (!(await new SqlObjectStore(env.DB, "web").get(`${id}/index.html`)))
+    throw new HttpError(422, "Web application package is missing");
   const releaseId = crypto.randomUUID();
   const results = await env.DB.batch([
     env.DB.prepare(
@@ -648,6 +747,76 @@ export default {
   },
   async fetch(req: Request, env: Env) {
     try {
+      const pathname = new URL(req.url).pathname;
+      if (
+        !/^\/(health|auth|me|logout|network|policy|releases|deployments|source|bootstrap-release|updates|artifacts|ci)(\/|$)/.test(
+          pathname,
+        )
+      ) {
+        let response: Response | undefined;
+        const latest = await env.DB.prepare(
+          "SELECT deployment_id FROM releases WHERE channel='stable' AND withdrawn=0 ORDER BY created_at DESC LIMIT 1",
+        ).first<{ deployment_id: string }>();
+        if (latest) {
+          const isPage =
+            pathname === "/" || !pathname.split("/").pop()?.includes(".");
+          const assetPath = isPage
+            ? "index.html"
+            : decodeURIComponent(pathname.slice(1));
+          let stored = await new SqlObjectStore(env.DB, "web").get(
+            `${latest.deployment_id}/${assetPath}`,
+          );
+          if (!stored && !isPage) {
+            const old = await env.DB.prepare(
+              "SELECT objects.key FROM objects JOIN releases ON substr(objects.key,1,36)=releases.deployment_id WHERE objects.namespace='web' AND substr(objects.key,38)=? AND releases.withdrawn=0 ORDER BY releases.created_at DESC LIMIT 1",
+            )
+              .bind(assetPath)
+              .first<{ key: string }>();
+            if (old)
+              stored = await new SqlObjectStore(env.DB, "web").get(old.key);
+          }
+          if (stored) {
+            const ext = assetPath.split(".").pop()!;
+            const types: Record<string, string> = {
+              html: "text/html; charset=utf-8",
+              js: "text/javascript; charset=utf-8",
+              css: "text/css; charset=utf-8",
+              svg: "image/svg+xml",
+              png: "image/png",
+              jpg: "image/jpeg",
+              webp: "image/webp",
+              ico: "image/x-icon",
+              json: "application/json",
+              woff2: "font/woff2",
+            };
+            response = new Response(await stored.arrayBuffer(), {
+              headers: {
+                "Content-Type": types[ext] || "application/octet-stream",
+              },
+            });
+          }
+        }
+        if (!response) {
+          if (!env.ASSETS) return new Response("Not found", { status: 404 });
+          response = await env.ASSETS.fetch(req);
+        }
+        const headers = new Headers(response.headers);
+        headers.set(
+          "Content-Security-Policy",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        );
+        headers.set("X-Content-Type-Options", "nosniff");
+        headers.set(
+          "Cache-Control",
+          pathname === "/"
+            ? "no-store"
+            : headers.get("Cache-Control") || "no-cache",
+        );
+        return new Response(response.body, {
+          status: response.status,
+          headers,
+        });
+      }
       return await handle(req, env);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);

@@ -26,7 +26,7 @@ impl Default for Settings {
             channel: "stable".into(),
             auto_check: true,
             auto_download: true,
-            installation: "automatic".into(),
+            installation: "prompt".into(),
         }
     }
 }
@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn settings_survive_write() {
         let path =
-            std::env::temp_dir().join(format!("nimbus-settings-{}.json", std::process::id()));
+            std::env::temp_dir().join(format!("corelum-settings-{}.json", std::process::id()));
         let mut s = Settings::default();
         s.accent = "#112233".into();
         save(&path, &s).unwrap();

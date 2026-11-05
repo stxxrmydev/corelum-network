@@ -6,8 +6,8 @@ export function randomToken() {
   ).join("");
 }
 export async function passwordHash(password: string, salt: string) {
-  if (password.length < 16 || password.length > 256)
-    throw new Error("Use a password between 16 and 256 characters");
+  if (password.length < 8 || password.length > 256)
+    throw new Error("Use a password between 8 and 256 characters");
   const key = await crypto.subtle.importKey(
     "raw",
     enc.encode(password),
@@ -39,22 +39,38 @@ export function equal(a: string, b: string) {
 export async function tokenHash(token: string, pepper: string) {
   return sha256(enc.encode(pepper + ":" + token));
 }
+export async function requireSession(
+  request: Request,
+  db: D1Database,
+  pepper: string,
+) {
+  const token =
+    request.headers
+      .get("Authorization")
+      ?.match(/^Bearer ([a-f0-9]{64})$/)?.[1] ||
+    request.headers
+      .get("Cookie")
+      ?.match(/(?:^|;\s*)corelum_session=([a-f0-9]{64})(?:;|$)/)?.[1];
+  if (!token) throw new HttpError(401, "Administrator sign-in required");
+  const row = await db
+    .prepare(
+      "SELECT sessions.admin_id,admins.role,admins.email AS username FROM sessions JOIN admins ON admins.id=sessions.admin_id WHERE hash=? AND expires_at>?",
+    )
+    .bind(await tokenHash(token, pepper), Date.now())
+    .first<{ admin_id: string; role: "admin" | "user"; username: string }>();
+  if (!row)
+    throw new HttpError(401, "Your session expired. Please sign in again.");
+  return row;
+}
 export async function requireAdmin(
   request: Request,
   db: D1Database,
   pepper: string,
 ) {
-  const token = request.headers
-    .get("Authorization")
-    ?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
-  if (!token) throw new HttpError(401, "Administrator sign-in required");
-  const row = await db
-    .prepare("SELECT admin_id FROM sessions WHERE hash=? AND expires_at>?")
-    .bind(await tokenHash(token, pepper), Date.now())
-    .first<{ admin_id: string }>();
-  if (!row)
-    throw new HttpError(401, "Your session expired. Please sign in again.");
-  return row.admin_id;
+  const session = await requireSession(request, db, pepper);
+  if (session.role !== "admin")
+    throw new HttpError(403, "Administrator access required");
+  return session.admin_id;
 }
 export class HttpError extends Error {
   constructor(

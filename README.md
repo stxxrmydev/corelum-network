@@ -1,4 +1,4 @@
-# Nimbus
+# Corelum Network
 
 A Windows 11 application foundation built with Tauri 2, Rust, React and TypeScript. Source ZIPs are reviewed by an authenticated administrator, integrated into a versioned repository, tested in CI, compiled on Windows, signed in a separate trusted job, and published through an authenticated control service.
 
@@ -26,6 +26,6 @@ The source repository remains private. Installers live in private GitHub Release
 
 New installations must use a build configured with the deployed HTTPS control-service address and the permanent update public key. An unconfigured local build deliberately reports that remote administration and updates are unavailable.
 
-Checking happens at launch and every 20 seconds while Nimbus runs, including in the system tray. Default settings download verified releases and restart after a 20-second notice. Users can select restart approval or installation on exit. Builds still take time; closed or offline installations cannot receive updates until they run online. Free hosting and private Actions quotas apply.
+Checking happens at launch and every 20 seconds while Corelum runs, including in the system tray. Default settings download verified releases and restart after a 20-second notice. Users can select restart approval or installation on exit. Builds still take time; closed or offline installations cannot receive updates until they run online. Free hosting and private Actions quotas apply.
 
 The update signature is separate from a Windows Authenticode publisher certificate. Authenticode configuration is optional and is not supplied with this project. Do not distribute private signing keys or local administrator setup records.
