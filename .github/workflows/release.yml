@@ -87,6 +87,10 @@ jobs:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows-release
       - run: npm ci --ignore-scripts
       - name: Configure fixed public update endpoint
         env:

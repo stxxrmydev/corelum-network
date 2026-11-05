@@ -19,6 +19,8 @@ crons = ["* * * * *"]
 
 [vars]
 GITHUB_REPOSITORY = "stxxrmydev/corelum-network"
+GITHUB_REPOSITORY_ID = "1447517469"
+GITHUB_OWNER_ID = "352099282"
 GITHUB_BRANCH = "main"
 PUBLIC_ORIGIN = "https://corelum.nimbus-shell.workers.dev"
 SOURCE_BASE_SHA = "REPLACE_WITH_INITIAL_COMMIT_SHA"

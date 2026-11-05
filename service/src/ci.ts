@@ -6,7 +6,11 @@ const jwks = createRemoteJWKSet(
 );
 export async function requireBuild(
   request: Request,
-  env: GitEnv & { PUBLIC_ORIGIN: string },
+  env: GitEnv & {
+    PUBLIC_ORIGIN: string;
+    GITHUB_REPOSITORY_ID: string;
+    GITHUB_OWNER_ID: string;
+  },
   id: string,
 ) {
   const token = request.headers
@@ -23,9 +27,12 @@ export async function requireBuild(
   } catch {
     throw new HttpError(403, "Build identity was not accepted");
   }
+  const [owner, repository] = env.GITHUB_REPOSITORY.split("/");
   if (
     payload.sub !==
-      `repo:${env.GITHUB_REPOSITORY}:ref:refs/heads/${env.GITHUB_BRANCH}` ||
+      `repo:${owner}@${env.GITHUB_OWNER_ID}/${repository}@${env.GITHUB_REPOSITORY_ID}:ref:refs/heads/${env.GITHUB_BRANCH}` ||
+    String(payload.repository_id) !== env.GITHUB_REPOSITORY_ID ||
+    String(payload.repository_owner_id) !== env.GITHUB_OWNER_ID ||
     payload.repository !== env.GITHUB_REPOSITORY ||
     payload.ref !== `refs/heads/${env.GITHUB_BRANCH}` ||
     payload.workflow_ref !==

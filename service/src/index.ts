@@ -20,6 +20,8 @@ import { SqlObjectStore } from "./storage";
 import { unzipSync } from "fflate";
 import { safePath } from "../../shared/archive";
 interface Env extends GitEnv {
+  GITHUB_REPOSITORY_ID: string;
+  GITHUB_OWNER_ID: string;
   AI: Ai;
   ASSETS: Fetcher;
   DB: D1Database;
