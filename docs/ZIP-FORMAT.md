@@ -12,11 +12,11 @@ public/ideas-icon.png
 ```json
 {
   "schema": 1,
-  "version": "1.0.1",
-  "baseVersion": "1.0.0",
+  "version": "1.0.2",
+  "baseVersion": "1.0.1",
   "baseCommit": "EXACT_40_CHARACTER_SHA_FROM_THE_ADMIN_SCREEN",
   "channel": "stable",
-  "minShellVersion": "1.0.0",
+  "minShellVersion": "1.0.1",
   "notes": "Introducing the Ideas page.",
   "remove": [],
   "urgent": false
@@ -63,4 +63,6 @@ $env:BASE_COMMIT = 'SOURCE_SHA_FROM_THE_ADMIN_SCREEN'
 npm run sample
 ```
 
-Upload `samples/ideas-1.0.1.zip`, review the new file, approve the build and publish when Ready. The delivered sample ZIP is tied to the source revision recorded with the release artifacts; regenerate it if your channel has advanced.
+Upload `samples/ideas-1.0.2.zip`, review the new file, approve the build and publish when Ready. The delivered sample ZIP targets stable 1.0.1, source `1790c4ffe9e9f68e1d65982844b1b500aa6e64fa`; regenerate it if your channel has advanced.
+
+When requesting future file drops, give the author this format, the current channel version and exact source SHA, and ask for only the changed permitted files plus `update.json`. The service places files by their archive paths and rebuilds the application. It does not guess where arbitrary scripts belong or run scripts directly from a ZIP.

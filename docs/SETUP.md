@@ -27,11 +27,11 @@ npm run desktop
 1. Use a private GitHub repository and enable Actions. Keep the default trusted branch named `main` unless you update all matching workflow configuration.
 2. Authenticate Wrangler with your Cloudflare account. No paid subscription or R2 activation is needed.
 3. Create a D1 database with `npx wrangler d1 create corelum-control` and place its ID/account ID in `service/wrangler.toml`.
-4. Set `GITHUB_REPOSITORY`, `GITHUB_BRANCH` and `PUBLIC_ORIGIN` to your actual repository and Worker address. Run `npx wrangler d1 migrations apply corelum-control --remote --config service/wrangler.toml`.
+4. Set `GITHUB_REPOSITORY`, `GITHUB_REPOSITORY_ID`, `GITHUB_OWNER_ID`, `GITHUB_BRANCH` and `PUBLIC_ORIGIN` to your repository identity and Worker address. The numeric IDs must match GitHub's immutable OIDC identity claims. Run `npx wrangler d1 migrations apply corelum-control --remote --config service/wrangler.toml`. The supplied configuration uses the existing database binding name `nimbus-control`; use that name for its migrations.
 5. Create three service secrets: `GITHUB_TOKEN`, `SESSION_PEPPER`, and the temporary `BOOTSTRAP_TOKEN`. Use a repository-scoped fine-grained GitHub token with Contents read/write and Actions read/write. The integration also writes trusted, generated version files; do not allow user ZIPs to modify workflow configuration. If your GitHub permission policy requires a workflow permission for creating branches containing existing workflow files, grant it only to this service identity.
 6. Generate each random service secret separately with a cryptographic generator or a password manager. Use `wrangler secret put NAME --config service/wrangler.toml` through private input, or a protected JSON file with `wrangler deploy --secrets-file PATH`. Never place secret values directly in command arguments or Git.
 7. Deploy using `npx wrangler deploy --config service/wrangler.toml --var SOURCE_BASE_SHA:YOUR_INITIAL_SOURCE_COMMIT`. This exact SHA must contain the reviewed 1.0.0 source. Deployment can be performed with an empty initial secret configuration: administrator routes fail closed until `SESSION_PEPPER` is present.
-8. Check `/health`, then use the one-time administrator setup below. Remove the bootstrap secret after creating the administrator.
+8. Keep the `[ai]` binding in `wrangler.toml` to enable real AI chat. The service calls `@cf/meta/llama-3.1-8b-instruct-fp8` using this binding; no user API key is required. Check `/health`, then use the one-time administrator setup below. Remove the bootstrap secret after creating the administrator.
 
 The service's cron checks active jobs once per minute. It does not execute uploaded code. Database archive storage accepts at most 4 MiB per uploaded ZIP. Installers are retained in private GitHub Releases and streamed through the service only after publication.
 
@@ -42,13 +42,13 @@ Create an ignored local JSON file, such as `local-secrets/admin-setup.json`, con
 ```json
 {
   "origin": "https://YOUR-WORKER.workers.dev",
-  "email": "YOUR_ADMIN_EMAIL",
+  "email": "YOUR_ADMIN_USERNAME",
   "password": "A_UNIQUE_PASSWORD_AT_LEAST_16_CHARACTERS_LONG",
   "bootstrap": "THE_TEMPORARY_BOOTSTRAP_SECRET"
 }
 ```
 
-Run `node scripts/admin-setup.mjs PATH_TO_PRIVATE_JSON`. The service creates the first administrator only once, hashes the password with a random salt and refuses later setup attempts. Remove `BOOTSTRAP_TOKEN` using `wrangler secret delete BOOTSTRAP_TOKEN --config service/wrangler.toml` and securely remove the local input when it is no longer needed. Sign in inside Settings → Development Studio. Sessions expire after eight hours and can be revoked by Sign out. Account recovery requires an operator-controlled database procedure; there is no unauthenticated password-reset endpoint.
+Run `node scripts/admin-setup.mjs PATH_TO_PRIVATE_JSON`. The service creates the first administrator only once, hashes the password with a random salt and refuses later setup attempts. The `email` key is retained for API compatibility and accepts the administrator username. Remove `BOOTSTRAP_TOKEN` using `wrangler secret delete BOOTSTRAP_TOKEN --config service/wrangler.toml` and securely remove the local input when it is no longer needed. Sign in on the initial screen, then open Development Studio. Registration creates a regular account; passing an administrator role in registration input cannot grant privileges. Sessions expire after eight hours and can be revoked by Sign out. Account recovery requires an operator-controlled database procedure; there is no unauthenticated password-reset endpoint.
 
 ## Permanent signing identity
 
@@ -74,7 +74,7 @@ $env:TAURI_SIGNING_PRIVATE_KEY = 'PATH_TO_YOUR_PRIVATE_KEY'
 npm run bundle
 ```
 
-Use the NSIS `*-setup.exe` as the conventional installer. It installs for the current Windows user, creates the Start menu entry, offers desktop shortcut support and registers its uninstaller. Preserve the application name and identifier for future releases. User settings live outside the installation directory and are not deleted by updates.
+Use the NSIS `*-setup.exe` as the conventional installer. It installs for the current Windows user, creates the Start menu entry, offers desktop shortcut support and registers its uninstaller. The displayed product is Corelum AI. Preserve its existing `com.corelum.network` application identifier and internal executable name for update continuity. User settings live outside the installation directory and are not deleted by updates.
 
 In the app, an administrator can use **Build initial release** to build 1.0.0 from the exact trusted initial source, then **Publish update** after the pipeline reaches Ready. The trusted source validation explicitly permits this initial build; all later ZIP releases must pass protected-file checks.
 
@@ -95,8 +95,8 @@ Run `npm test`, `npm run build`, `npm run check:service`, and the native tests b
 
 If a build is Failed, inspect the associated GitHub Actions run. Repository dispatch errors usually indicate token permissions, a missing workflow on main, or a stale source SHA. A Ready build requires a signed installer in GitHub Releases and an OIDC-authenticated registration record. If the public feed is 204, there is no higher approved release for that version/channel. 401 on administrator endpoints requires signing in again. Network failures retry without changing the installed executable.
 
-The demo installers use a separate `com.corelum.network.demo` identity and a loopback-only test feed. They are for local verification and must not be distributed as production builds. Their HTTP test exception does not exist in the normal configuration. Read the demo instructions supplied alongside them before testing.
+Earlier Nimbus Demo installers use a separate demo identity and a loopback-only test feed. They do not become the production Corelum AI installation automatically. Install the delivered Corelum AI setup executable for the connected app. Never distribute demo builds as production.
 
 ## Backups and operating limits
 
-Retain the private signing key, service secrets, repository history, signed installers and administrator recovery record securely. Export D1 before destructive migrations; the migration runner does not back up unrelated application data automatically. Monitor GitHub Actions and Cloudflare free usage. Nothing in these scripts upgrades an account to a paid plan or activates R2 billing.
+Retain the private signing key, service secrets, repository history, signed installers and administrator recovery record securely. Export D1 before destructive migrations; the migration runner does not back up unrelated application data automatically. Monitor GitHub Actions, Workers, D1 and Workers AI free usage. Nothing in these scripts upgrades an account to a paid plan or activates R2 billing. Chat uses the free Workers AI allowance; if that allowance is exhausted, requests fail until quota is available. No paid fallback is configured.

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.0.1",
-  "baseVersion": "1.0.0",
-  "baseCommit": "85a256de524b254d8838ee65def72cd803686deb",
+  "version": "1.0.2",
+  "baseVersion": "1.0.1",
+  "baseCommit": "1790c4ffe9e9f68e1d65982844b1b500aa6e64fa",
   "channel": "stable",
-  "minShellVersion": "1.0.0",
+  "minShellVersion": "1.0.1",
   "notes": "Introducing Ideas: capture, complete, and organise ideas in a new workspace page. Your notes remain on your device.",
   "remove": [],
   "urgent": false
