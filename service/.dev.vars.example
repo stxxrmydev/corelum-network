@@ -1,0 +1,5 @@
+# Copy to .dev.vars. Never commit credentials. Use wrangler secret put in production.
+BOOTSTRAP_TOKEN=GENERATE_A_RANDOM_32_BYTE_VALUE
+GITHUB_TOKEN=FINE_GRAINED_TOKEN_FOR_PRIVATE_REPO_CONTENTS_ACTIONS_WORKFLOWS
+SESSION_PEPPER=GENERATE_A_DIFFERENT_RANDOM_32_BYTE_VALUE
+# Initial SHA and public origin are non-secret vars in wrangler.toml.

@@ -1,0 +1,27 @@
+:root {
+  color-scheme: dark;
+  --bg: #101116;
+  --sidebar: #121318;
+  --panel: #17181f;
+  --line: #272831;
+  --hover: #1c1d26;
+  --active: #a5a0ff0e;
+  --text: #e7e7ef;
+  --muted: #999aa9;
+  --faint: #626574;
+  --accent: #a5a0ff;
+  --mint: #83cbb0;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f7fa;
+  --sidebar: #fbfbfd;
+  --panel: #fff;
+  --line: #e6e6ee;
+  --hover: #f0eff8;
+  --active: #8c82dd12;
+  --text: #262737;
+  --muted: #6c6d80;
+  --faint: #8a8c9f;
+  --mint: #439979;
+}

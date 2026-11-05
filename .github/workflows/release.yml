@@ -1,0 +1,170 @@
+name: Release pipeline
+run-name: Nimbus ${{ inputs.deployment_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: Approved deployment UUID
+        required: true
+        type: string
+      source_sha:
+        description: Exact reviewed source commit
+        required: true
+        type: string
+      version:
+        description: Semantic release version
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        type: choice
+        options: [stable, beta]
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.channel }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    name: Validate and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: trusted
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: candidate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate trusted inputs and protected files
+        working-directory: trusted
+        env:
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: node scripts/validate-candidate.mjs ../candidate
+      - name: Install only the trusted dependency lock
+        working-directory: trusted
+        run: npm ci --ignore-scripts
+      - name: Prepare sandbox dependencies
+        run: cp -a trusted/node_modules candidate/node_modules
+      - name: Pull sandbox image
+        run: docker pull node:24-bookworm-slim
+      - name: Test candidate without network, credentials, or host writes
+        run: >-
+          docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges
+          --read-only --memory 2g --cpus 2 --pids-limit 256
+          --tmpfs /tmp:rw,size=512m --user 1001:1001
+          -v "$GITHUB_WORKSPACE/candidate:/source:ro"
+          node:24-bookworm-slim sh -c
+          'cp -a /source /tmp/app && cd /tmp/app && node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/vitest/vitest.mjs run'
+  build:
+    name: Compile Windows candidate
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci --ignore-scripts
+      - name: Configure fixed public update endpoint
+        env:
+          PUBLIC_KEY: ${{ vars.TAURI_PUBLIC_KEY }}
+          NIMBUS_SERVICE_URL: ${{ vars.NIMBUS_SERVICE_URL }}
+        run: node scripts/configure.mjs
+      - name: Build without any signing or publishing credentials
+        env:
+          NIMBUS_SERVICE_URL: ${{ vars.NIMBUS_SERVICE_URL }}
+        run: npm run tauri -- build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          retention-days: 3
+          if-no-files-found: error
+  sign:
+    name: Sign trusted artifact
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-installer
+          path: signed
+      - name: Sign installer using trusted Tauri CLI
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          $installer = Get-ChildItem -LiteralPath signed -Filter '*-setup.exe'
+          if ($installer.Count -ne 1) { throw 'Exactly one installer required' }
+          npm run tauri -- signer sign --app-version $env:RELEASE_VERSION $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
+          node scripts/release-manifest.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-installer
+          path: signed/*
+          if-no-files-found: error
+          retention-days: 14
+  stage:
+    name: Stage release
+    needs: sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-installer
+          path: signed
+      - name: Archive build in private GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+        run: |
+          gh release create "build-$DEPLOYMENT_ID" signed/* --target "$SOURCE_SHA" --title "Nimbus $VERSION ($CHANNEL)" --notes "Approved build $DEPLOYMENT_ID. Availability is controlled by Nimbus administration." --prerelease
+      - name: Register signed artifacts with the update service
+        env:
+          NIMBUS_SERVICE_URL: ${{ vars.NIMBUS_SERVICE_URL }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/stage.mjs

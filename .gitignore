@@ -1,0 +1,14 @@
+node_modules/
+dist/
+src-tauri/target/
+.wrangler/
+.env
+.dev.vars
+*.key
+*.key.pub
+test-results/
+playwright-report/
+local-secrets/
+service-dry-run/
+src-tauri/gen/
+samples/*.zip

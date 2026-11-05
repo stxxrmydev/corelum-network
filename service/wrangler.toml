@@ -1,0 +1,22 @@
+name = "nimbus-control"
+account_id = "7e05b77b88bdf7d52f1ddacd9725c4a8"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+GITHUB_REPOSITORY = "stxxrmydev/nimbus-shell"
+GITHUB_BRANCH = "main"
+PUBLIC_ORIGIN = "https://nimbus-control.nimbus-shell.workers.dev"
+SOURCE_BASE_SHA = "REPLACE_WITH_INITIAL_COMMIT_SHA"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nimbus-control"
+database_id = "d055584f-f9cb-4dcc-9d02-ce0eb54bffc4"
+migrations_dir = "migrations"
+
