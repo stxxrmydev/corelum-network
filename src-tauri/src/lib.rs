@@ -437,7 +437,7 @@ pub fn run() {
       },_=>{}
     }});
   }
-  let handle=app.handle().clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_secs(2)).await;loop{let _=perform_check(&handle,false).await;tokio::time::sleep(Duration::from_secs(20)).await;}});Ok(())
+  let handle=app.handle().clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_secs(2)).await;loop{let _=perform_check(&handle,false).await;tokio::time::sleep(Duration::from_secs(30 * 60)).await;}});Ok(())
  })
  .invoke_handler(tauri::generate_handler![app_info,get_settings,save_settings,update_status,check_updates,download_update,install_update,login,register,logout,admin_api,choose_zip,upload_zip,update_history])
  .run(tauri::generate_context!()).expect("Corelum could not start");
