@@ -11,6 +11,9 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
 
+[ai]
+binding = "AI"
+
 [triggers]
 crons = ["* * * * *"]
 
@@ -19,6 +22,7 @@ GITHUB_REPOSITORY = "stxxrmydev/corelum-network"
 GITHUB_BRANCH = "main"
 PUBLIC_ORIGIN = "https://corelum.nimbus-shell.workers.dev"
 SOURCE_BASE_SHA = "REPLACE_WITH_INITIAL_COMMIT_SHA"
+WEB_BASE_VERSION = "1.0.1"
 
 [[d1_databases]]
 binding = "DB"

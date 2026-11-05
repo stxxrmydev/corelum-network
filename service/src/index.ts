@@ -20,12 +20,14 @@ import { SqlObjectStore } from "./storage";
 import { unzipSync } from "fflate";
 import { safePath } from "../../shared/archive";
 interface Env extends GitEnv {
+  AI: Ai;
   ASSETS: Fetcher;
   DB: D1Database;
   BOOTSTRAP_TOKEN: string;
   SESSION_PEPPER: string;
   PUBLIC_ORIGIN: string;
   SOURCE_BASE_SHA: string;
+  WEB_BASE_VERSION: string;
 }
 const json = (v: unknown, status = 200) =>
   Response.json(v, {
@@ -136,7 +138,9 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       b.deployment_id !== id ||
       b.version !== d.version ||
       b.source_sha !== d.source_sha ||
-      b.key !== `${id}/CorelumNetwork_${d.version}_x64-setup.exe` ||
+      !["CorelumNetwork", "CorelumAI"].some(
+        (name) => b.key === `${id}/${name}_${d.version}_x64-setup.exe`,
+      ) ||
       typeof b.signature !== "string" ||
       b.signature.length < 50 ||
       !/^[a-f0-9]{64}$/.test(b.sha256) ||
@@ -194,7 +198,9 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   if (path.startsWith("/artifacts/") && req.method === "GET") {
     const key = path.slice(11);
     if (
-      !/^[a-f0-9-]{36}\/CorelumNetwork_[a-zA-Z0-9.-]+_x64-setup.exe$/.test(key)
+      !/^[a-f0-9-]{36}\/Corelum(?:Network|AI)_[a-zA-Z0-9.-]+_x64-setup.exe$/.test(
+        key,
+      )
     )
       throw new HttpError(404, "Artifact not found");
     const id = key.split("/")[0];
@@ -332,6 +338,73 @@ export async function handle(req: Request, env: Env): Promise<Response> {
         `corelum_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`,
       );
       return response;
+    }
+  }
+  if (path === "/chat" && req.method === "POST") {
+    const session = await requireSession(req, env.DB, env.SESSION_PEPPER);
+    const policy = await env.DB.prepare(
+      "SELECT maintenance FROM policy WHERE id=1",
+    ).first<{ maintenance: number }>();
+    if (policy?.maintenance && session.role !== "admin")
+      throw new HttpError(
+        503,
+        "Corelum AI is under maintenance. Please try again later.",
+      );
+    const b = await body(req);
+    if (
+      !Array.isArray(b.messages) ||
+      !b.messages.length ||
+      b.messages.length > 20 ||
+      b.messages.some(
+        (m: any) =>
+          !["user", "assistant"].includes(m.role) ||
+          typeof m.content !== "string" ||
+          m.content.length > 5000,
+      ) ||
+      b.messages.reduce((n: number, m: any) => n + m.content.length, 0) > 18000
+    )
+      throw new HttpError(
+        400,
+        "The conversation is too long. Start a new chat.",
+      );
+    const key = `chat:${session.admin_id}`,
+      until = Date.now() + 60000;
+    const limit = await env.DB.prepare(
+      "INSERT INTO throttle(key,count,until_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN until_at<? THEN 1 ELSE count+1 END,until_at=CASE WHEN until_at<? THEN ? ELSE until_at END RETURNING count",
+    )
+      .bind(key, until, Date.now(), Date.now(), until)
+      .first<{ count: number }>();
+    if ((limit?.count || 0) > 10)
+      throw new HttpError(
+        429,
+        "Please wait a moment before sending another message.",
+      );
+    if (!env.AI) throw new HttpError(503, "AI service is not configured.");
+    try {
+      const result = (await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are Corelum AI, a practical and helpful assistant for everyday planning, learning, writing, and problem solving. Answer clearly and honestly. Do not claim access to tools, personal data, or current internet information you do not have. Use readable paragraphs and concise lists when helpful.",
+          },
+          ...b.messages,
+        ],
+        max_tokens: 1024,
+        stream: false,
+      })) as { response?: string };
+      if (!result.response) throw new Error("Empty reply");
+      return json({ reply: result.response });
+    } catch (e) {
+      if (e instanceof Error && /quota|neuron|daily limit/i.test(e.message))
+        throw new HttpError(
+          429,
+          "The daily AI allowance has been reached. Please try again tomorrow.",
+        );
+      throw new HttpError(
+        502,
+        "The AI service is temporarily unavailable. Please try again.",
+      );
     }
   }
   if (path === "/me" || path === "/network/status") {
@@ -676,12 +749,14 @@ async function publish(env: Env, id: string, actor: string) {
     object = await new SqlObjectStore(env.DB, "artifacts").get(key);
   if (!object) throw new HttpError(409, "Signed build manifest is missing");
   const artifact = await object.json<any>();
-  const expected = `${id}/CorelumNetwork_${d.version}_x64-setup.exe`;
+  const expected = artifact.key;
   if (
     artifact.version !== d.version ||
     artifact.deployment_id !== id ||
     artifact.source_sha !== d.source_sha ||
-    artifact.key !== expected ||
+    !["CorelumNetwork", "CorelumAI"].some(
+      (name) => artifact.key === `${id}/${name}_${d.version}_x64-setup.exe`,
+    ) ||
     !/^[a-f0-9]{64}$/.test(artifact.sha256) ||
     typeof artifact.signature !== "string" ||
     artifact.signature.length < 50
@@ -749,14 +824,19 @@ export default {
     try {
       const pathname = new URL(req.url).pathname;
       if (
-        !/^\/(health|auth|me|logout|network|policy|releases|deployments|source|bootstrap-release|updates|artifacts|ci)(\/|$)/.test(
+        !/^\/(health|auth|me|logout|network|policy|releases|deployments|source|bootstrap-release|updates|artifacts|ci|chat)(\/|$)/.test(
           pathname,
         )
       ) {
         let response: Response | undefined;
-        const latest = await env.DB.prepare(
-          "SELECT deployment_id FROM releases WHERE channel='stable' AND withdrawn=0 ORDER BY created_at DESC LIMIT 1",
-        ).first<{ deployment_id: string }>();
+        const available = await env.DB.prepare(
+          "SELECT * FROM releases WHERE channel='stable' AND withdrawn=0",
+        ).all<Release>();
+        const latest = selectRelease(
+          available.results,
+          "stable",
+          env.WEB_BASE_VERSION || "1.0.0",
+        );
         if (latest) {
           const isPage =
             pathname === "/" || !pathname.split("/").pop()?.includes(".");

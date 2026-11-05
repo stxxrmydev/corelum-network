@@ -20,6 +20,11 @@ on:
         type: choice
         options: [stable, beta]
         required: true
+      existing_run:
+        description: Retry only publication using this completed signed run
+        required: false
+        default: ""
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -27,6 +32,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   validate:
+    if: inputs.existing_run == ''
     name: Validate and test
     runs-on: ubuntu-latest
     steps:
@@ -145,10 +151,12 @@ jobs:
   stage:
     name: Stage release
     needs: sign
+    if: always() && (needs.sign.result == 'success' || inputs.existing_run != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -161,10 +169,14 @@ jobs:
         with:
           name: signed-installer
           path: signed
+          run-id: ${{ inputs.existing_run || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
           name: web-application
           path: signed
+          run-id: ${{ inputs.existing_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Archive build in private GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -174,7 +186,9 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
         run: |
-          gh release create "build-$DEPLOYMENT_ID" signed/* --target "$SOURCE_SHA" --title "Corelum $VERSION ($CHANNEL)" --notes "Approved build $DEPLOYMENT_ID. Availability is controlled by Corelum administration." --prerelease
+          if ! gh release view "build-$DEPLOYMENT_ID" > /dev/null 2>&1; then
+            gh release create "build-$DEPLOYMENT_ID" signed/* --target "$SOURCE_SHA" --title "Corelum $VERSION ($CHANNEL)" --notes "Approved build $DEPLOYMENT_ID. Availability is controlled by Corelum administration." --prerelease
+          fi
       - name: Register signed artifacts with the update service
         env:
           CORELUM_SERVICE_URL: ${{ vars.CORELUM_SERVICE_URL }}

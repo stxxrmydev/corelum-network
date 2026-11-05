@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Corelum Network",
-  "version": "1.0.0",
+  "productName": "Corelum AI",
+  "version": "1.0.1",
   "identifier": "com.corelum.network",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Corelum Network",
+        "title": "Corelum AI",
         "theme": "Dark",
         "width": 1200,
         "height": 820,
@@ -30,24 +30,20 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis"
-    ],
+    "targets": ["nsis"],
     "createUpdaterArtifacts": true,
-    "icon": [
-      "icons/icon.ico",
-      "icons/icon.png"
-    ],
-    "shortDescription": "Create and update projects using file drops.",
-    "longDescription": "Corelum Network is a Windows workspace for creating and updating projects through reviewed file drops, controlled builds, and verified releases.",
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "shortDescription": "AI assistance for everyday tasks.",
+    "longDescription": "Corelum AI provides a personal AI workspace and an administrator-only Development Studio for reviewed file drops and application releases.",
     "publisher": "Corelum",
     "category": "Productivity",
     "windows": {
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false,
-        "startMenuFolder": "Corelum Network",
-        "installerIcon": "icons/icon.ico"
+        "startMenuFolder": "Corelum AI",
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "installer-hooks.nsh"
       }
     }
   },

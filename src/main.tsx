@@ -48,7 +48,9 @@ import type {
 import { call, api, desktop, acceptFile } from "./core/bridge";
 import "./ui/theme.css";
 import "./ui/studio.css";
-import { SignIn, Maintenance, type Account } from "./core/Auth";
+import "./ui/preferences.css";
+import { Preferences } from "./ui/Preferences";
+import { SignIn, Maintenance, AccountContext, type Account } from "./core/Auth";
 import { BrandMark } from "./ui/BrandMark";
 const modules = Object.values(
   import.meta.glob<{ default: Feature }>("./features/**/index.tsx", {
@@ -259,648 +261,357 @@ function App() {
     Component = feature?.component;
   const nav = [
     { id: "home", title: "Home" },
-    ...(admin ? modules.map((m) => ({ id: m.id, title: m.title })) : []),
+    ...modules
+      .filter((m) => admin || m.id === "workspace")
+      .map((m) => ({ id: m.id, title: m.title })),
   ];
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div
-          className="brand"
-          aria-label="Corelum Network"
-          title="Corelum Network"
-        >
-          <BrandMark size={40} />
-        </div>
-        <div className="space-label">STUDIO</div>
-        <nav>
-          {nav.map((item) => {
-            const Icon = icons[item.id as keyof typeof icons] || Box;
-            return (
+    <AccountContext.Provider value={account}>
+      <div className="app-shell">
+        <aside className="sidebar">
+          <div className="brand" aria-label="Corelum AI" title="Corelum AI">
+            <BrandMark size={40} />
+          </div>
+          <div className="space-label">STUDIO</div>
+          <nav className="studio-navigation">
+            <div
+              className="navigation-indicator"
+              style={{
+                top:
+                  Math.max(
+                    0,
+                    nav.findIndex((n) => n.id === page),
+                  ) * 48,
+                opacity: nav.some((n) => n.id === page) ? 1 : 0,
+              }}
+            />
+            {nav.map((item) => {
+              const Icon = icons[item.id as keyof typeof icons] || Box;
+              return (
+                <button
+                  key={item.id}
+                  className={`nav-item ${page === item.id ? "active" : ""}`}
+                  onClick={() => setPage(item.id)}
+                >
+                  <Icon size={19} />
+                  {item.title}
+                  {page === item.id && <span className="active-dot" />}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="sidebar-bottom">
+            <button
+              className={`nav-item ${page === "settings" ? "active" : ""}`}
+              onClick={() => setPage("settings")}
+            >
+              <Settings2 size={19} />
+              Settings
+            </button>
+            {admin && (
               <button
-                key={item.id}
-                className={`nav-item ${page === item.id ? "active" : ""}`}
-                onClick={() => setPage(item.id)}
+                className={`nav-item ${page === "development" ? "active" : ""}`}
+                onClick={() => setPage("development")}
               >
-                <Icon size={19} />
-                {item.title}
-                {page === item.id && <span className="active-dot" />}
+                <Code2 size={19} />
+                Development Studio
               </button>
-            );
-          })}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="sidebar-service">
-            <span className="status-dot" />
-            <div>
-              Desktop client
-              <small>
-                {info.serviceConfigured
-                  ? "Update service connected"
-                  : "Offline configuration"}
-              </small>
+            )}
+          </div>
+        </aside>
+        <div className="main-shell">
+          <header>
+            <div className="header-right">
+              <span className="header-role">{account.username}</span>
+              <button
+                className="icon-button"
+                aria-label="Sign out"
+                onClick={signOut}
+              >
+                <LogOut size={16} />
+              </button>
             </div>
-          </div>
-          <button
-            className={`nav-item ${page === "settings" ? "active" : ""}`}
-            onClick={() => setPage("settings")}
-          >
-            <Settings2 size={19} />
-            Settings
-          </button>
-          {admin && (
-            <button
-              className={`nav-item ${page === "development" ? "active" : ""}`}
-              onClick={() => setPage("development")}
-            >
-              <Code2 size={19} />
-              Development Studio
-            </button>
-          )}
-          <div className="sidebar-version">
-            <span className="status-dot" />
-            Corelum Network {info.version}
-            <span>{settings.channel}</span>
-          </div>
-        </div>
-      </aside>
-      <div className="main-shell">
-        <header>
-          <div className="breadcrumb">
-            Workspace <ChevronRight size={13} />
-            <strong>
-              {page === "home"
-                ? "Overview"
-                : page === "settings"
-                  ? "Settings"
-                  : page === "development"
-                    ? "Development Studio"
-                    : feature?.title}
-            </strong>
-          </div>
-          <div className="header-right">
-            <span className="tiny-dot" />
-            {info.serviceConfigured
-              ? "Connected to Corelum"
-              : "Service not configured"}
-            <span className="header-role">{account.username}</span>
-            <button
-              className="icon-button"
-              aria-label="Sign out"
-              onClick={signOut}
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        </header>
-        <main key={page}>
-          {page === "home" && admin && (
-            <>
-              <div className="page-heading">
-                <div>
-                  <span className="eyebrow">CORELUM NETWORK</span>
-                  <h1>Overview</h1>
-                  <p>
-                    Manage your workspace, preferences, and application
-                    releases.
-                  </p>
-                </div>
-                <div className="date-chip">
-                  {new Date().toLocaleDateString("en-GB", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })}
-                </div>
-              </div>
-              <section className="hero panel studio-hero">
-                <div className="hero-copy">
-                  <span className="pill">
-                    <span className="status-dot" />
-                    {info.serviceConfigured
-                      ? "Service connected"
-                      : "Local workspace"}
-                  </span>
-                  <h2>Your development workspace</h2>
-                  <p>
-                    Create and update projects using file drops.
-                    <br />
-                    Review changes, build releases, and manage distribution.
-                  </p>
-                  <button
-                    className="primary"
-                    onClick={() => setPage("workspace")}
-                  >
-                    Open workspace
-                  </button>
-                </div>
-                <div className="product-emblem">
-                  <BrandMark size={114} />
-                  <div className="emblem-line" />
-                </div>
-              </section>
-              <div className="section-label">APPLICATION STATUS</div>
-              <div className="stats-grid">
-                <article className="panel stat">
-                  <div className="stat-top">
-                    <span className="icon-box">
-                      <Box size={19} />
-                    </span>
-                    <span className="badge">Installed</span>
-                  </div>
-                  <span className="stat-caption">Current version</span>
-                  <h3>
-                    {info.version}
-                    <span>{settings.channel}</span>
-                  </h3>
-                  <p>{info.build}</p>
-                </article>
-                <article className="panel stat">
-                  <div className="stat-top">
-                    <span className="icon-box mint">
-                      <ShieldCheck size={19} />
-                    </span>
-                    <span className="badge">Verified delivery</span>
-                  </div>
-                  <span className="stat-caption">Updates</span>
-                  <h3>
-                    {status.phase === "current"
-                      ? "Up to date"
-                      : status.phase === "downloading"
-                        ? `${status.progress}%`
-                        : status.phase === "ready"
-                          ? "Ready to install"
-                          : status.phase === "error"
-                            ? "Connection issue"
-                            : status.phase === "unconfigured"
-                              ? "Not configured"
-                              : "Checking"}
-                  </h3>
-                  <p>{status.message}</p>
-                </article>
-                <article className="panel stat">
-                  <div className="stat-top">
-                    <span className="icon-box">
-                      <Layers3 size={19} />
-                    </span>
-                    <span className="badge">Workspace</span>
-                  </div>
-                  <span className="stat-caption">Available pages</span>
-                  <h3>
-                    {modules.length}
-                    <span>{modules.length === 1 ? "page" : "pages"}</span>
-                  </h3>
-                  <p>Installed workspace modules.</p>
-                </article>
-              </div>
-              <div className="lower-grid">
-                <section className="panel quick">
-                  <div className="panel-title">
-                    <h3>Preferences</h3>
-                  </div>
-                  <button
-                    className="quick-row"
-                    onClick={() => setPage("settings")}
-                  >
-                    <span className="icon-box">
-                      <Palette size={18} />
-                    </span>
-                    <span>
-                      <strong>Appearance</strong>
-                      <small>Colour mode and accent settings.</small>
-                    </span>
-                  </button>
-                  <button
-                    className="quick-row"
-                    onClick={() => setPage("settings")}
-                  >
-                    <span className="icon-box">
-                      <RefreshCw size={18} />
-                    </span>
-                    <span>
-                      <strong>Application updates</strong>
-                      <small>
-                        Release channel and installation preferences.
-                      </small>
-                    </span>
-                  </button>
-                </section>
-                <section className="panel note-card">
-                  <div className="panel-title">
-                    <h3>Release information</h3>
-                    <span className="badge">{settings.channel}</span>
-                  </div>
-                  <p>
-                    {status.notes ||
-                      `Version ${info.version} is installed. Release notes are available in Settings.`}
-                  </p>
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setHistory([
-                        {
-                          version: info.version,
-                          notes:
-                            status.notes ||
-                            "Corelum Network: workspace, file-drop review, deployment management, and verified application updates.",
-                        },
-                      ]);
-                    }}
-                  >
-                    View release notes
-                  </button>
-                </section>
-              </div>
-              <footer>
-                <span className="status-dot" />
-                Corelum Network<span>Version {info.version}</span>
-              </footer>
-            </>
-          )}
-          {page === "home" && !admin && (
-            <>
-              <div className="page-heading">
-                <div>
-                  <span className="eyebrow">CORELUM NETWORK</span>
-                  <h1>Your personal workspace</h1>
-                  <p>Welcome, {account.username}.</p>
-                </div>
-              </div>
-              <section className="panel personal-home">
-                <BrandMark size={54} />
-                <h2>Your account is ready</h2>
-                <p>Personal tools will be available here.</p>
-              </section>
-            </>
-          )}
-          {Component && admin && <Component />}
-          {page === "settings" && (
-            <>
-              <div className="page-heading">
-                <div>
-                  <span className="eyebrow">PREFERENCES</span>
-                  <h1>Settings</h1>
-                  <p>Configure appearance, startup, and update behaviour.</p>
-                </div>
-                <span className={`badge ${saveError ? "warning" : ""}`}>
-                  {saveError
-                    ? "Changes not saved"
-                    : saving
-                      ? "Saving…"
-                      : "All changes saved"}
-                </span>
-              </div>
-              <section className="panel settings-panel">
-                <h3>
-                  <Palette size={18} />
-                  Appearance
-                </h3>
-                <div className="setting-row">
+          </header>
+          <main key={page}>
+            {page === "home" && admin && (
+              <>
+                <div className="page-heading">
                   <div>
-                    <strong>Colour mode</strong>
-                    <small>Choose how Corelum looks on your device.</small>
+                    <span className="eyebrow">CORELUM AI</span>
+                    <h1>Overview</h1>
+                    <p>
+                      Manage your workspace, preferences, and application
+                      releases.
+                    </p>
                   </div>
-                  <div className="segmented">
-                    {(["dark", "light", "system"] as const).map((m, i) => {
-                      const Icon = [Moon, Sun, Monitor][i];
-                      return (
-                        <button
-                          key={m}
-                          onClick={() => save({ appearance: m })}
-                          className={
-                            settings.appearance === m ? "selected" : ""
-                          }
-                        >
-                          <Icon size={16} />
-                          {m}
-                        </button>
-                      );
+                  <div className="date-chip">
+                    {new Date().toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
                     })}
                   </div>
                 </div>
-                <div className="setting-row">
-                  <div>
-                    <strong>Accent colour</strong>
-                    <small>
-                      Applied to navigation, buttons, and interface highlights.
-                    </small>
-                  </div>
-                  <div className="swatches">
-                    {[
-                      "#a5a0ff",
-                      "#70cbb2",
-                      "#f4b887",
-                      "#77b8eb",
-                      "#ee8fae",
-                    ].map((c) => (
-                      <button
-                        aria-label={`Accent ${c}`}
-                        className="swatch"
-                        key={c}
-                        style={{ background: c }}
-                        onClick={() => save({ accent: c })}
-                      >
-                        {settings.accent === c && <Check size={16} />}
-                      </button>
-                    ))}
-                    <input
-                      aria-label="Custom accent colour"
-                      type="color"
-                      value={settings.accent}
-                      onChange={(e) => save({ accent: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </section>
-              <section className="panel settings-panel">
-                <h3>
-                  <SlidersHorizontal size={18} />
-                  Startup & behaviour
-                </h3>
-                <Setting
-                  label="Open on startup"
-                  detail="Choose your starting page."
-                >
-                  <select
-                    value={settings.startupPage}
-                    onChange={(e) =>
-                      save({
-                        startupPage: e.target.value as Settings["startupPage"],
-                      })
-                    }
-                  >
-                    <option value="home">Home</option>
-                    <option value="workspace">Workspace</option>
-                  </select>
-                </Setting>
-                <Autostart notify={notify} />
-                <Setting
-                  label="Start quietly"
-                  detail="Start in the tray when Windows signs in."
-                >
-                  <Toggle
-                    label="Start quietly"
-                    value={settings.startMinimized}
-                    change={(v) => save({ startMinimized: v })}
-                  />
-                </Setting>
-                <Setting
-                  label="Close to system tray"
-                  detail="Keep Corelum running and checking for updates when you close the window."
-                >
-                  <Toggle
-                    label="Close to tray"
-                    value={settings.minimizeToTray}
-                    change={(v) => save({ minimizeToTray: v })}
-                  />
-                </Setting>
-              </section>
-              <section className="panel settings-panel">
-                <h3>
-                  <RefreshCw size={18} />
-                  Updates
-                </h3>
-                <Setting
-                  label="Release channel"
-                  detail="Stable for everyday use. Beta for early access."
-                >
-                  <select
-                    value={settings.channel}
-                    onChange={(e) =>
-                      save({ channel: e.target.value as Settings["channel"] })
-                    }
-                  >
-                    <option value="stable">Stable</option>
-                    <option value="beta">Beta</option>
-                  </select>
-                </Setting>
-                <Setting
-                  label="Automatic checks"
-                  detail="Check on launch and every 20 seconds while Corelum is running."
-                >
-                  <Toggle
-                    label="Automatic checks"
-                    value={settings.autoCheck}
-                    change={(v) => save({ autoCheck: v })}
-                  />
-                </Setting>
-                <Setting
-                  label="Background downloads"
-                  detail="Download and verify new releases as they arrive."
-                >
-                  <Toggle
-                    label="Background downloads"
-                    value={settings.autoDownload}
-                    change={(v) => save({ autoDownload: v })}
-                  />
-                </Setting>
-                <Setting
-                  label="Install updates"
-                  detail="Automatic mode restarts Corelum 20 seconds after verification."
-                >
-                  <select
-                    value={settings.installation}
-                    onChange={(e) =>
-                      save({
-                        installation: e.target
-                          .value as Settings["installation"],
-                      })
-                    }
-                  >
-                    <option value="automatic">Automatically restart</option>
-                    <option value="prompt">Ask before restarting</option>
-                    <option value="onExit">When I quit Corelum</option>
-                  </select>
-                </Setting>
-                <div className="update-box">
-                  <div>
-                    <strong>
-                      {status.version
-                        ? `Version ${status.version}`
-                        : "Application updates"}
-                    </strong>
-                    <p>{status.message}</p>
-                    {status.phase === "downloading" && (
-                      <progress value={status.progress} max={100} />
-                    )}
-                  </div>
-                  <button
-                    onClick={() => action("check_updates")}
-                    className="secondary"
-                  >
-                    <RefreshCw size={15} />
-                    Check now
-                  </button>
-                  {status.phase === "available" && (
+                <section className="hero panel studio-hero">
+                  <div className="hero-copy">
+                    <span className="pill">
+                      <span className="status-dot" />
+                      {info.serviceConfigured
+                        ? "Service connected"
+                        : "Local workspace"}
+                    </span>
+                    <h2>Your development workspace</h2>
+                    <p>
+                      Create and update projects using file drops.
+                      <br />
+                      Review changes, build releases, and manage distribution.
+                    </p>
                     <button
                       className="primary"
-                      onClick={() => action("download_update")}
+                      onClick={() => setPage("workspace")}
                     >
-                      Download
+                      Open workspace
                     </button>
-                  )}
-                  {status.phase === "ready" && (
-                    <button
-                      className="primary"
-                      onClick={() => action("install_update")}
-                    >
-                      Restart & install
-                    </button>
-                  )}
-                </div>
-                <div className="inline-actions">
-                  <button
-                    className="text-button"
-                    onClick={() =>
-                      call<any[]>("update_history")
-                        .then(setHistory)
-                        .catch((e) => notify(String(e)))
-                    }
-                  >
-                    <History size={15} />
-                    Update history
-                  </button>
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setHistory([
-                        {
-                          version: info.version,
-                          notes:
-                            status.notes ||
-                            "Corelum Network: workspace, preferences, file-drop review, and application updates.",
-                        },
-                      ]);
-                    }}
-                  >
-                    <FileArchive size={15} />
-                    View changelog
-                  </button>
-                </div>
-              </section>
-              {admin && (
-                <>
-                  <section className="panel settings-panel">
+                  </div>
+                  <div className="product-emblem">
+                    <BrandMark size={114} />
+                    <div className="emblem-line" />
+                  </div>
+                </section>
+                <div className="section-label">APPLICATION STATUS</div>
+                <div className="stats-grid">
+                  <article className="panel stat">
+                    <div className="stat-top">
+                      <span className="icon-box">
+                        <Box size={19} />
+                      </span>
+                      <span className="badge">Installed</span>
+                    </div>
+                    <span className="stat-caption">Current version</span>
                     <h3>
-                      <Code2 size={18} />
-                      Development Studio
+                      {info.version}
+                      <span>{settings.channel}</span>
                     </h3>
-                    <Setting
-                      label="Release administration"
-                      detail={
-                        admin
-                          ? "You are signed in as an administrator."
-                          : "Sign in to review ZIP updates and publish releases."
-                      }
-                    >
+                    <p>{info.build}</p>
+                  </article>
+                  <article className="panel stat">
+                    <div className="stat-top">
+                      <span className="icon-box mint">
+                        <ShieldCheck size={19} />
+                      </span>
+                      <span className="badge">Verified delivery</span>
+                    </div>
+                    <span className="stat-caption">Updates</span>
+                    <h3>
+                      {status.phase === "current"
+                        ? "Up to date"
+                        : status.phase === "downloading"
+                          ? `${status.progress}%`
+                          : status.phase === "ready"
+                            ? "Ready to install"
+                            : status.phase === "error"
+                              ? "Connection issue"
+                              : status.phase === "unconfigured"
+                                ? "Not configured"
+                                : "Checking"}
+                    </h3>
+                    <p>{status.message}</p>
+                  </article>
+                  <article className="panel stat">
+                    <div className="stat-top">
+                      <span className="icon-box">
+                        <Layers3 size={19} />
+                      </span>
+                      <span className="badge">Workspace</span>
+                    </div>
+                    <span className="stat-caption">Available pages</span>
+                    <h3>
+                      {modules.length}
+                      <span>{modules.length === 1 ? "page" : "pages"}</span>
+                    </h3>
+                    <p>Installed workspace modules.</p>
+                  </article>
+                </div>
+                <div className="lower-grid">
+                  <section className="home-settings">
+                    <h3>Quick settings</h3>
+                    <div>
                       <button
-                        className="secondary"
-                        onClick={() => setPage("development")}
+                        className="home-setting-tile"
+                        onClick={() => setPage("settings")}
                       >
-                        {admin
-                          ? "Open administration"
-                          : "Administrator sign-in"}
+                        <Palette size={22} />
+                        <strong>Appearance</strong>
+                        <span>Theme and accent</span>
                       </button>
-                    </Setting>
+                      <button
+                        className="home-setting-tile"
+                        onClick={() => setPage("settings")}
+                      >
+                        <RefreshCw size={22} />
+                        <strong>Updates</strong>
+                        <span>Release preferences</span>
+                      </button>
+                    </div>
                   </section>
-                </>
-              )}
-              <div className="about-line">
-                <BrandMark size={28} />
+                  <section className="panel note-card">
+                    <div className="panel-title">
+                      <h3>Release information</h3>
+                      <span className="badge">{settings.channel}</span>
+                    </div>
+                    <p>
+                      {status.notes ||
+                        `Version ${info.version} is installed. Release notes are available in Settings.`}
+                    </p>
+                    <button
+                      className="text-button"
+                      onClick={() => {
+                        setHistory([
+                          {
+                            version: info.version,
+                            notes:
+                              status.notes ||
+                              "Corelum AI: workspace, file-drop review, deployment management, and verified application updates.",
+                          },
+                        ]);
+                      }}
+                    >
+                      View release notes
+                    </button>
+                  </section>
+                </div>
+                <footer>
+                  <span className="status-dot" />
+                  Corelum AI<span>Version {info.version}</span>
+                </footer>
+              </>
+            )}
+            {page === "home" && !admin && (
+              <>
+                {(() => {
+                  const Chat = modules.find(
+                    (m) => m.id === "workspace",
+                  )!.component;
+                  return <Chat />;
+                })()}
+              </>
+            )}
+            {Component && (admin || page === "workspace") && <Component />}
+            {page === "settings" && (
+              <Preferences
+                settings={settings}
+                info={info}
+                status={status}
+                account={account}
+                saving={saving}
+                saveError={saveError}
+                save={save}
+                action={action}
+                notify={notify}
+                history={() =>
+                  call<any[]>("update_history")
+                    .then(setHistory)
+                    .catch((e) => notify(String(e)))
+                }
+                changelog={() =>
+                  setHistory([
+                    {
+                      version: info.version,
+                      notes:
+                        status.notes ||
+                        "Corelum AI: personal chat, account access, Development Studio, and verified application updates.",
+                    },
+                  ])
+                }
+                development={() => setPage("development")}
+              />
+            )}
+            {page === "development" && admin && (
+              <Development
+                admin={admin}
+                setAdmin={setAdmin}
+                info={info}
+                settings={settings}
+                notify={notify}
+              />
+            )}
+          </main>
+          {status.phase === "ready" && (
+            <div className="update-banner">
+              <ShieldCheck size={19} />
+              <div>
+                <strong>Update pending · {status.version}</strong>
                 <span>
-                  Corelum Network {info.version}
-                  <small>{info.build}</small>
+                  {settings.installation === "automatic"
+                    ? "Restarting automatically after verification."
+                    : "Your update has been verified and staged."}
                 </span>
-                <code>
-                  {info.serviceConfigured
-                    ? "Service configured"
-                    : "Service not connected"}
-                </code>
               </div>
-            </>
-          )}
-          {page === "development" && admin && (
-            <Development
-              admin={admin}
-              setAdmin={setAdmin}
-              info={info}
-              settings={settings}
-              notify={notify}
-            />
-          )}
-        </main>
-        {status.phase === "ready" && (
-          <div className="update-banner">
-            <ShieldCheck size={19} />
-            <div>
-              <strong>Update pending · {status.version}</strong>
-              <span>
-                {settings.installation === "automatic"
-                  ? "Restarting automatically after verification."
-                  : "Your update has been verified and staged."}
-              </span>
+              <button
+                className="secondary"
+                onClick={() => save({ installation: "prompt" })}
+              >
+                Later
+              </button>
+              <button
+                className="primary"
+                onClick={() => action("install_update")}
+              >
+                {desktop ? "Restart now" : "Reload now"}
+              </button>
             </div>
+          )}
+        </div>
+        {notice && (
+          <div className="toast" role="alert">
+            <AlertCircle size={18} />
+            <span>{notice}</span>
             <button
-              className="secondary"
-              onClick={() => save({ installation: "prompt" })}
+              aria-label="Dismiss notification"
+              onClick={() => setNotice("")}
             >
-              Later
-            </button>
-            <button
-              className="primary"
-              onClick={() => action("install_update")}
-            >
-              {desktop ? "Restart now" : "Reload now"}
+              <X size={17} />
             </button>
           </div>
         )}
+        {history && (
+          <div className="modal-backdrop">
+            <section className="modal panel">
+              <div className="panel-title">
+                <h2>Updates & changelog</h2>
+                <button
+                  className="icon-button"
+                  aria-label="Close history"
+                  onClick={() => setHistory(null)}
+                >
+                  <X />
+                </button>
+              </div>
+              {!history.length ? (
+                <p>
+                  No installation attempts have been recorded on this device.
+                </p>
+              ) : (
+                history.map((h, i) => (
+                  <article key={i} className="history-row">
+                    <strong>{h.version}</strong>
+                    <p>
+                      {h.notes ||
+                        (h.success
+                          ? "Installed successfully"
+                          : "Installation did not complete; settings preserved.")}
+                    </p>
+                    {h.at && (
+                      <small>{new Date(h.at * 1000).toLocaleString()}</small>
+                    )}
+                  </article>
+                ))
+              )}
+            </section>
+          </div>
+        )}
       </div>
-      {notice && (
-        <div className="toast" role="alert">
-          <AlertCircle size={18} />
-          <span>{notice}</span>
-          <button
-            aria-label="Dismiss notification"
-            onClick={() => setNotice("")}
-          >
-            <X size={17} />
-          </button>
-        </div>
-      )}
-      {history && (
-        <div className="modal-backdrop">
-          <section className="modal panel">
-            <div className="panel-title">
-              <h2>Updates & changelog</h2>
-              <button
-                className="icon-button"
-                aria-label="Close history"
-                onClick={() => setHistory(null)}
-              >
-                <X />
-              </button>
-            </div>
-            {!history.length ? (
-              <p>No installation attempts have been recorded on this device.</p>
-            ) : (
-              history.map((h, i) => (
-                <article key={i} className="history-row">
-                  <strong>{h.version}</strong>
-                  <p>
-                    {h.notes ||
-                      (h.success
-                        ? "Installed successfully"
-                        : "Installation did not complete; settings preserved.")}
-                  </p>
-                  {h.at && (
-                    <small>{new Date(h.at * 1000).toLocaleString()}</small>
-                  )}
-                </article>
-              ))
-            )}
-          </section>
-        </div>
-      )}
-    </div>
+    </AccountContext.Provider>
   );
 }
 function Setting({
@@ -1414,7 +1125,7 @@ function Development({
             </h3>
             <Setting
               label="Maintenance mode"
-              detail="Block regular accounts from accessing Corelum Network. Administrators retain access."
+              detail="Block regular accounts from accessing Corelum AI. Administrators retain access."
             >
               <Toggle
                 label="Maintenance mode"

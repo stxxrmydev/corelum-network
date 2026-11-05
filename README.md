@@ -1,4 +1,4 @@
-# Corelum Network
+# Corelum AI
 
 A Windows 11 application foundation built with Tauri 2, Rust, React and TypeScript. Source ZIPs are reviewed by an authenticated administrator, integrated into a versioned repository, tested in CI, compiled on Windows, signed in a separate trusted job, and published through an authenticated control service.
 

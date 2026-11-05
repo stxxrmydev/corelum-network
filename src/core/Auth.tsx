@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, createContext } from "react";
 import { BrandMark } from "../ui/BrandMark";
 import { call, api } from "./bridge";
 import { Loader2 } from "lucide-react";
@@ -9,6 +9,7 @@ export interface Account {
   maintenance: boolean;
   update?: { version: string; notes: string } | null;
 }
+export const AccountContext = createContext<Account | undefined>(undefined);
 export function SignIn({
   onSignedIn,
 }: {
@@ -25,7 +26,7 @@ export function SignIn({
         <BrandMark size={46} />
       </div>
       <section className="auth-card panel">
-        <span className="eyebrow">CORELUM NETWORK</span>
+        <span className="eyebrow">CORELUM AI</span>
         <h1>{register ? "Create an account" : "Sign in"}</h1>
         <p>
           {register
@@ -91,7 +92,7 @@ export function SignIn({
           {register ? "Already have an account? Sign in" : "Create an account"}
         </button>
       </section>
-      <p className="auth-footer">Corelum Network · Secure account access</p>
+      <p className="auth-footer">Corelum AI · Secure account access</p>
     </div>
   );
 }
@@ -100,11 +101,11 @@ export function Maintenance({ signOut }: { signOut: () => void }) {
     <div className="auth-screen">
       <BrandMark size={50} />
       <section className="auth-card panel">
-        <span className="eyebrow">CORELUM NETWORK</span>
+        <span className="eyebrow">CORELUM AI</span>
         <h1>Under maintenance</h1>
         <p>
-          Corelum Network is temporarily unavailable while we carry out
-          maintenance. Please try again later.
+          Corelum AI is temporarily unavailable while we carry out maintenance.
+          Please try again later.
         </p>
         <button className="secondary" onClick={signOut}>
           Sign out

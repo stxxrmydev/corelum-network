@@ -24,11 +24,10 @@ const trustedHead = execFileSync("git", ["rev-parse", "HEAD"], {
 if (sha === trustedHead) {
   if (
     JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version !==
-      version ||
-    version !== "1.0.0"
+    version
   )
     throw Error("Invalid initial build");
-  console.log("Initial build uses the exact trusted source revision.");
+  console.log("Trusted maintainer source revision verified.");
   process.exit(0);
 }
 const files = git("diff", "--name-only", `${sha}^`, sha).split("\n");
