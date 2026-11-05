@@ -70,6 +70,16 @@ async function rateLimit(req: Request, env: Env) {
       "Too many sign-in attempts. Try again in 15 minutes.",
     );
 }
+// Account-scoped throttle also covers attempts distributed across different IPs.
+async function rateLimitAccount(env: Env, username: string) {
+  const key = "login:" + await tokenHash(username.trim().toLowerCase(), env.SESSION_PEPPER);
+  const until = Date.now() + 900000;
+  const row = await env.DB.prepare(
+    "INSERT INTO throttle(key,count,until_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN until_at<? THEN 1 ELSE count+1 END,until_at=CASE WHEN until_at<? THEN ? ELSE until_at END RETURNING count",
+  ).bind(key, until, Date.now(), Date.now(), until).first<{ count: number }>();
+  if (!row || row.count > 10)
+    throw new HttpError(429, "Too many sign-in attempts. Try again in 15 minutes.");
+}
 async function baseFor(env: Env, channel: Channel) {
   const r = await env.DB.prepare(
     "SELECT source_sha FROM releases WHERE channel=? ORDER BY created_at DESC LIMIT 1",
@@ -314,6 +324,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       return json({ ok: true });
     }
     if (path === "/auth/login") {
+      await rateLimitAccount(env, String(b.username || b.email || ""));
       const admin = await env.DB.prepare("SELECT * FROM admins WHERE email=?")
         .bind(String(b.username || b.email).toLowerCase())
         .first<any>();
