@@ -26,7 +26,7 @@ impl Default for Settings {
             channel: "stable".into(),
             auto_check: true,
             auto_download: true,
-            installation: "prompt".into(),
+            installation: "automatic".into(),
         }
     }
 }
