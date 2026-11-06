@@ -39,7 +39,7 @@ export async function totpAt(secret: string, counter: number): Promise<string> {
   return String(value % 1_000_000).padStart(6, "0");
 }
 export async function verifyTotp(secret: string, code: string, nowMs = Date.now()): Promise<boolean> {
-  if (!/^\\d{6}$/.test(code)) return false;
+  if (!/^[0-9]{6}$/.test(code)) return false;
   const step = Math.floor(nowMs / 30_000);
   for (const offset of [-1, 0, 1]) {
     if (step + offset >= 0 && (await totpAt(secret, step + offset)) === code) return true;
