@@ -88,7 +88,7 @@ describe("real Worker and SQL integration", () => {
     expect((await request("/me", "GET", undefined, token)).status).toBe(200);
   });
   it("protects authenticator enrollment and never exposes stored secret", async () => {
-    expect((await request("/auth/mfa/enroll","POST")).status).toBe(401);
+    expect((await request("/auth/mfa/enroll","POST",{})).status).toBe(401);
     const result = await request("/auth/mfa/enroll","POST",{},token);
     expect(result.status).toBe(200);
     const setup = await result.json() as any;
