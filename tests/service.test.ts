@@ -173,6 +173,14 @@ describe("real Worker and SQL integration", () => {
     const u = new URL(releases[0].url);
     expect((await request(u.pathname)).status).toBe(404);
   });
+  it("prevents public registration of the reserved administrator username", async () => {
+    const response = await request("/auth/register", "POST", {
+      username: "stormydev",
+      password: "a long example password",
+      role: "admin",
+    });
+    expect(response.status).toBe(403);
+  });
   it("does not allow registration to grant an administrator role", async () => {
     expect(
       (
