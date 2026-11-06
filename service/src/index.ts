@@ -1,3 +1,4 @@
+import { createTotpSecret, totpUri, verifyTotp, encryptTotp, decryptTotp } from "./mfa";
 import semver from "semver";
 import { validateArchive, sha256, type Manifest } from "../../shared/archive";
 import {
@@ -465,6 +466,34 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       "corelum_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
     );
     return response;
+  }
+  if (path === "/auth/mfa/status" && req.method === "GET") {
+    const session = await requireSession(req, env.DB, env.SESSION_PEPPER);
+    const row = await env.DB.prepare("SELECT enabled_at FROM account_mfa WHERE account_id=?").bind(session.admin_id).first<{enabled_at:number|null}>();
+    return json({enabled:!!row?.enabled_at});
+  }
+  if (path === "/auth/mfa/enroll" && req.method === "POST") {
+    const session = await requireSession(req, env.DB, env.SESSION_PEPPER);
+    if (session.role !== "admin") throw new HttpError(403,"Administrator access required");
+    const existing = await env.DB.prepare("SELECT enabled_at FROM account_mfa WHERE account_id=?").bind(session.admin_id).first<{enabled_at:number|null}>();
+    if (existing?.enabled_at) throw new HttpError(409,"Authenticator already enabled");
+    const secret = createTotpSecret();
+    await env.DB.prepare("INSERT INTO account_mfa(account_id,secret_ciphertext,enabled_at) VALUES(?,?,NULL) ON CONFLICT(account_id) DO UPDATE SET secret_ciphertext=excluded.secret_ciphertext,enabled_at=NULL")
+      .bind(session.admin_id,await encryptTotp(secret,env.SESSION_PEPPER)).run();
+    return json({secret,uri:totpUri(secret,session.username)});
+  }
+  if (path === "/auth/mfa/verify" && req.method === "POST") {
+    const session = await requireSession(req, env.DB, env.SESSION_PEPPER);
+    if (session.role !== "admin") throw new HttpError(403,"Administrator access required");
+    await rateLimit(req,env);
+    await rateLimitAccount(env,session.username+":mfa");
+    const data = await body(req);
+    const row = await env.DB.prepare("SELECT secret_ciphertext,enabled_at FROM account_mfa WHERE account_id=?").bind(session.admin_id).first<{secret_ciphertext:string;enabled_at:number|null}>();
+    if (!row || row.enabled_at) throw new HttpError(409,"No pending authenticator setup");
+    if (!await verifyTotp(await decryptTotp(row.secret_ciphertext,env.SESSION_PEPPER),String(data.code||""))) throw new HttpError(401,"Invalid authenticator code");
+    // Enrollment confirmation only: login enforcement is a separate rollout requiring both clients and recovery codes.
+    await env.DB.prepare("UPDATE account_mfa SET enabled_at=? WHERE account_id=? AND enabled_at IS NULL").bind(Date.now(),session.admin_id).run();
+    return json({enabled:true,loginEnforced:false});
   }
   const actor = await requireAdmin(req, env.DB, env.SESSION_PEPPER);
   if (path === "/policy") {

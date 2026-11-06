@@ -49,6 +49,7 @@ beforeAll(async () => {
     ),
   );
   await db.exec(readFileSync("service/migrations/0004_auth_controls.sql", "utf8"));
+  await db.exec(readFileSync("service/migrations/0005_account_mfa.sql", "utf8"));
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
@@ -85,6 +86,17 @@ describe("real Worker and SQL integration", () => {
     expect(response.status).toBe(200);
     token = ((await response.json()) as any).token;
     expect((await request("/me", "GET", undefined, token)).status).toBe(200);
+  });
+  it("protects authenticator enrollment and never exposes stored secret", async () => {
+    expect((await request("/auth/mfa/enroll","POST")).status).toBe(401);
+    const result = await request("/auth/mfa/enroll","POST",{},token);
+    expect(result.status).toBe(200);
+    const setup = await result.json() as any;
+    expect(setup.secret).toMatch(/^[A-Z2-7]{32}$/);
+    const stored = await db.prepare("SELECT secret_ciphertext FROM account_mfa").first();
+    expect(stored.secret_ciphertext).not.toContain(setup.secret);
+    expect((await request("/auth/mfa/status","GET",undefined,token)).status).toBe(200);
+    expect((await request("/auth/mfa/verify","POST",{code:"00000"},token)).status).toBe(401);
   });
   it("returns 204 before a release is published", async () =>
     expect((await request("/updates/stable/windows/x86_64/1.0.0")).status).toBe(
