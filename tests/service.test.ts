@@ -49,7 +49,7 @@ beforeAll(async () => {
     ),
   );
   await db.exec(readFileSync("service/migrations/0004_auth_controls.sql", "utf8"));
-  await db.exec(readFileSync("service/migrations/0005_account_mfa.sql", "utf8"));
+  await db.prepare(readFileSync("service/migrations/0005_account_mfa.sql", "utf8")).run();
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
