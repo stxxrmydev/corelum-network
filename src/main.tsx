@@ -706,6 +706,10 @@ function Development({
     [releases, setReleases] = useState<Release[]>([]),
     [review, setReview] = useState<any>(),
     [autoPublish, setAutoPublish] = useState(false),
+    [mfaStatus, setMfaStatus] = useState<boolean | null>(null),
+    [mfaSetup, setMfaSetup] = useState<{secret:string;uri:string} | null>(null),
+    [mfaCode, setMfaCode] = useState(""),
+    [mfaBusy, setMfaBusy] = useState(false),
     [maintenance, setMaintenance] = useState(false),
     [base, setBase] = useState("");
   const load = useCallback(async () => {
@@ -721,6 +725,13 @@ function Development({
     setAutoPublish(!!p.auto_publish);
     setMaintenance(!!p.maintenance);
     setBase(s.baseCommit);
+    // MFA is optional until the desktop/web login challenge and recovery flow ship.
+    try {
+      const mfa = await api<{enabled:boolean}>("/auth/mfa/status");
+      setMfaStatus(mfa.enabled);
+    } catch {
+      setMfaStatus(null); // Migration 0005 may not yet be installed.
+    }
   }, [admin, settings.channel]);
   useEffect(() => {
     load().catch((e) => notify(String(e)));
@@ -1117,6 +1128,45 @@ function Development({
                 </div>
               </div>
             ))}
+          </section>
+          <section className="panel settings-panel">
+            <h3><ShieldCheck size={18} /> Authenticator security</h3>
+            <p className="subtle">Prepare a six-digit authenticator for this administrator account. This does not yet require a code at sign-in.</p>
+            {mfaStatus === null ? (
+              <p className="subtle">Authenticator setup unavailable. Check that D1 migration 0005 has been applied.</p>
+            ) : mfaStatus ? (
+              <p className="subtle">Authenticator enrolled. Login enforcement and recovery codes are coming in a separate security update.</p>
+            ) : mfaSetup ? (
+              <div>
+                <p>In your authenticator app, choose <strong>Enter a setup key</strong> and use this secret for Corelum AI:</p>
+                <code style={{overflowWrap:"anywhere"}}>{mfaSetup.secret}</code>
+                <p className="subtle">Keep this key private. It will disappear when you leave this screen.</p>
+                <form onSubmit={async e => {
+                  e.preventDefault();
+                  setMfaBusy(true);
+                  try {
+                    await api("/auth/mfa/verify","POST",{code:mfaCode});
+                    setMfaStatus(true);
+                    setMfaSetup(null);
+                    setMfaCode("");
+                    notify("Authenticator enrolled. It is not yet required for login.");
+                  } catch(err) {notify(String(err));}
+                  finally {setMfaBusy(false);}
+                }}>
+                  <label>Six-digit code from your app
+                    <input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={e=>setMfaCode(e.target.value)} required />
+                  </label>
+                  <button className="primary" disabled={mfaBusy}>Confirm authenticator</button>
+                </form>
+              </div>
+            ) : (
+              <button className="secondary" disabled={mfaBusy} onClick={async()=>{
+                setMfaBusy(true);
+                try {setMfaSetup(await api<{secret:string;uri:string}>("/auth/mfa/enroll","POST",{}));}
+                catch(err){notify(String(err));}
+                finally{setMfaBusy(false);}
+              }}>Set up authenticator</button>
+            )}
           </section>
           <section className="panel settings-panel">
             <h3>
