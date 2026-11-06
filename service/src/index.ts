@@ -290,6 +290,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
           400,
           "Use a username of 3–32 letters, numbers, dots, or underscores.",
         );
+      if (username === "stormydev") throw new HttpError(403, "This username is reserved");
       const salt = randomToken(),
         hash = await passwordHash(b.password, salt);
       const result = await env.DB.prepare(
